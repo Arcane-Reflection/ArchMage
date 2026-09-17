@@ -1,0 +1,14 @@
+# Maintainer: linuxphoneOS contributors
+#
+# CN font baseline for linuxphoneOS (CN-02): pure meta package.
+# Pulls the upstream Noto CJK fonts as the factory CN font baseline;
+# no fonts are built or forked here (STRATEGY §4).
+
+pkgname=linuxphoneos-cn-fonts-meta
+pkgver=1
+pkgrel=1
+pkgdesc='CN font baseline meta package for linuxphoneOS: Noto CJK as factory default'
+arch=(any)
+url='https://github.com/uMaj35ty/linuxphoneOS'
+license=('MIT')
+depends=('noto-fonts-cjk')
