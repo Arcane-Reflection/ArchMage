@@ -118,10 +118,31 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
-          for d in "${pkgs[@]}"; do
-            echo "::group::makepkg $d"
-            sudo -u builder -H bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm"
-            echo "::endgroup::"
+          # Leaf-first retry loop: in-tree meta packages (e.g. the
+          # linuxphoneos-cn umbrella depends on linuxphoneos-cn-*) are
+          # installed into this ephemeral container as soon as they build,
+          # so dependent packages can resolve them with makepkg -s.
+          remaining=("${pkgs[@]}")
+          pass=0
+          while [ "${#remaining[@]}" -gt 0 ]; do
+            pass=$((pass + 1))
+            next=()
+            for d in "${remaining[@]}"; do
+              echo "::group::makepkg $d (pass $pass)"
+              if sudo -u builder -H bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm"; then
+                # Install into the container (ephemeral) so later packages
+                # resolve this one as a dependency.
+                pacman -U --noconfirm "$GITHUB_WORKSPACE"/$d/*.pkg.tar.zst
+              else
+                next+=("$d")
+              fi
+              echo "::endgroup::"
+            done
+            if [ "${#next[@]}" -eq "${#remaining[@]}" ]; then
+              echo "ERROR: no build progress on pass $pass; failing packages: ${next[*]}" >&2
+              exit 1
+            fi
+            remaining=("${next[@]}")
           done
 
       - name: Sign and index packages into staging repo
