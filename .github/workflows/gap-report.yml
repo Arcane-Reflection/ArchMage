@@ -1,0 +1,76 @@
+name: gap-report
+
+# Daily aarch64 gap report (BUILD-03, plan 01-03): quantifies the aarch64
+# package gap for the linuxphoneOS flavour seed set against Arch x86_64 and
+# ALARM aarch64 repo databases — the EndeavourOS-ARM death cause, watched
+# from day one (PITFALLS 1 / RFC0032).
+#
+#   - pure download+parse job (no emulation, no build): ubuntu-latest is
+#     enough;
+#   - runs daily (schedule) and on demand (workflow_dispatch; schedule only
+#     fires on the default branch);
+#   - over threshold (missing > GAP_MISSING_LIMIT, not_found seed errors,
+#     overdue stale) the script exits non-zero => RED workflow = visible
+#     alert, while the report artifacts are still archived and inlined into
+#     the job summary (if: always());
+#   - repo DBs are data only: https downloads, bsdtar/jq parsing, nothing
+#     executed from upstream content (T-01-12);
+#   - every action is official and SHA-pinned.
+
+on:
+  schedule:
+    # Daily at 02:17 UTC (staggered against qemu-smoke's schedule).
+    - cron: "17 02 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install report tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          # bsdtar lives in libarchive-tools on Ubuntu (the plan's
+          # "按 runner 发行版处理"); vercmp comes with the pacman package;
+          # jq is preinstalled but pinned here anyway.
+          sudo apt-get install -y --no-install-recommends \
+            jq libarchive-tools pacman
+          bsdtar --version
+          vercmp 1.0 1.1 || test $? -eq 255
+          jq --version
+
+      - name: Run aarch64 gap report
+        # Non-zero exit (threshold alert) fails this step => red workflow.
+        run: |
+          set -euo pipefail
+          bash tools/reports/aarch64-gap.sh --out report
+
+      - name: Upload gap-report artifact
+        # v7.0.1
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gap-report
+          path: |
+            report/gap-report.json
+            report/gap-report.md
+          if-no-files-found: error
+
+      - name: Inline report into the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s report/gap-report.md ]; then
+            cat report/gap-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "gap-report.md missing — see the run step log" >> "$GITHUB_STEP_SUMMARY"
+          fi

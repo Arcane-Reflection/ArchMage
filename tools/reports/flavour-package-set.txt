@@ -1,0 +1,39 @@
+# flavour-package-set.txt — linuxphoneOS flavour package seed list (01-03).
+#
+# One package name per line; lines starting with '#' are comments. Consumed
+# daily by tools/reports/aarch64-gap.sh + .github/workflows/gap-report.yml
+# (BUILD-03: quantify the aarch64 gap from day one — PITFALLS 1, the
+# EndeavourOS-ARM death cause).
+#
+# Seed membership rules (verified against live repo DBs 2026-09-17):
+#   - only packages present in at least one default source (Arch x86_64
+#     core/extra or ALARM aarch64 core/extra) — a seed that no source knows
+#     is a SEED ERROR and alerts instead of being silently skipped;
+#   - linuxphoneos-* overlay packages live in this project's own repo and
+#     are not upstream-gap candidates (not seeded here);
+#   - mobile-stack packages carried only by danctnix are kept commented in
+#     the danctnix section: none of the default sources ships them, so an
+#     active entry would false-alert not_found from day one. Track them by
+#     setting DANCTNIX_DB_URL and uncommenting.
+
+# --- Phosh mobile stack (upstream / danctnix-compatible) ---
+phosh
+phoc
+squeekboard
+chatty
+modemmanager
+phosh-mobile-settings
+callaudiod
+feedbackd
+
+# --- CN input stack and fonts ---
+fcitx5
+fcitx5-chinese-addons
+fcitx5-gtk
+fcitx5-qt
+opencc
+noto-fonts-cjk
+
+# --- danctnix-only (NOT in Arch x86_64 or ALARM core/extra/alarm/aur;
+# --- uncomment when DANCTNIX_DB_URL is configured) ---
+# calls
