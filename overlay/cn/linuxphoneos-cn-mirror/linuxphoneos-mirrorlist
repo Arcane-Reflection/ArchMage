@@ -1,0 +1,32 @@
+# linuxphoneOS CN mirror defaults (CN-01)
+#
+# Single source file for both linuxphoneOS pacman mirrorlists; the PKGBUILD
+# splits it at the BEGIN/END markers below:
+#   - "archlinuxarm" section -> /etc/pacman.d/linuxphoneos/mirrorlist
+#     (applied to /etc/pacman.d/mirrorlist by the install scriptlet)
+#   - "archlinuxcn" section  -> /etc/pacman.d/linuxphoneos/mirrorlist-archlinuxcn
+#
+# Signature discipline (PITFALLS 2) lives in pacman.conf, never here:
+#   upstream ALARM repos : SigLevel = Required DatabaseOptional
+#                          (ALARM does not distribute signed databases)
+#   linuxphoneOS repos   : SigLevel = Required
+# "SigLevel TrustAll" is forbidden anywhere in this project.
+#
+# ---- BEGIN archlinuxarm ----
+# Arch Linux ARM mirrors (core / extra / community) — CN defaults.
+# TUNA
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$repo/$arch
+# USTC
+Server = https://mirrors.ustc.edu.cn/archlinuxarm/$repo/$arch
+# ---- END archlinuxarm ----
+#
+# ---- BEGIN archlinuxcn ----
+# archlinuxcn mirrors — CN defaults.
+# NOTE: archlinuxcn publishes x86_64 only upstream. This list serves the
+# x86_64 dev VM and reference use; enabling [archlinuxcn] on aarch64 images
+# is a bootstrap-profile decision (01-02), never automatic.
+# TUNA
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxcn/$arch
+# USTC
+Server = https://mirrors.ustc.edu.cn/archlinuxcn/$arch
+# ---- END archlinuxcn ----

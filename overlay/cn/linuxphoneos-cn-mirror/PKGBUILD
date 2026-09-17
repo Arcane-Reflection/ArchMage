@@ -1,0 +1,41 @@
+# Maintainer: linuxphoneOS contributors
+#
+# CN mirror defaults for linuxphoneOS (CN-01).
+#
+# Overlay-only (STRATEGY §4): this package carries configuration only and
+# depends on upstream packages; it does not fork or replace any upstream
+# PKGBUILD or package.
+#
+# NOTE on /etc/pacman.d/mirrorlist: that path is owned by the upstream
+# `pacman-mirrorlist` package on Arch/ALARM, so this package must not ship
+# it directly (hard `pacman -U` file conflict). The canonical mirrorlists
+# are package-owned under /etc/pacman.d/linuxphoneos/ (backup-protected so
+# local edits survive upgrades) and the install scriptlet applies the
+# factory default to /etc/pacman.d/mirrorlist with pacnew-safe semantics.
+
+pkgname=linuxphoneos-cn-mirror
+pkgver=1
+pkgrel=1
+pkgdesc='CN pacman mirror defaults for linuxphoneOS: TUNA/USTC mirrorlists for Arch Linux ARM and archlinuxcn'
+arch=(any)
+url='https://github.com/uMaj35ty/linuxphoneOS'
+license=('MIT')
+depends=('pacman')
+install=linuxphoneos-cn-mirror.install
+source=('linuxphoneos-mirrorlist')
+sha256sums=('06d66f6d7101957bce18bd8084e863e44bd5374a3d6455f0a2a39189efcb05d0')
+backup=('etc/pacman.d/linuxphoneos/mirrorlist'
+        'etc/pacman.d/linuxphoneos/mirrorlist-archlinuxcn')
+
+package() {
+    cd "$srcdir"
+
+    # Split the single mirrorlist source at the BEGIN/END markers.
+    awk '/^# ---- BEGIN archlinuxarm ----$/{f=1;next} /^# ---- END archlinuxarm ----$/{f=0} f' \
+        linuxphoneos-mirrorlist > mirrorlist
+    awk '/^# ---- BEGIN archlinuxcn ----$/{f=1;next} /^# ---- END archlinuxcn ----$/{f=0} f' \
+        linuxphoneos-mirrorlist > mirrorlist-archlinuxcn
+
+    install -Dm644 mirrorlist "$pkgdir/etc/pacman.d/linuxphoneos/mirrorlist"
+    install -Dm644 mirrorlist-archlinuxcn "$pkgdir/etc/pacman.d/linuxphoneos/mirrorlist-archlinuxcn"
+}

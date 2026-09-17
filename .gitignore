@@ -1,0 +1,16 @@
+# makepkg build products
+*.pkg.tar.zst
+*.pkg.tar.zst.*
+*.pkg.tar.xz
+*.pkg.tar.xz.*
+*.src.tar.gz
+*.sig
+src/
+pkg/
+
+# local test artifacts
+test/build/
+test/results/
+
+# CI / local makepkg cache
+.cache/

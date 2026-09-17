@@ -1,0 +1,227 @@
+name: packages
+
+# Build changed overlay packages on arm64 and publish a staging pacman repo.
+# - push (main, overlay/** or this workflow): differential build, signed
+#   repo (persistent staging key from secrets, ephemeral fallback key
+#   otherwise — prominently flagged).
+# - pull_request (overlay/**): differential build only. No secrets access
+#   (GitHub-native isolation, T-01-02): the repo DB is unsigned and marked
+#   not-for-consumption.
+# - workflow_dispatch: full build of every overlay/*/<pkg>/ directory.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'overlay/**'
+      - '.github/workflows/packages.yml'
+  pull_request:
+    paths:
+      - 'overlay/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: menci/archlinuxarm:base-devel
+    steps:
+      - name: Prepare container toolchain
+        run: |
+          set -euo pipefail
+          pacman-key --init
+          pacman-key --populate archlinuxarm
+          # base-devel image already has most of this; --needed keeps it idempotent.
+          pacman -Sy --noconfirm --needed base-devel pacman-contrib git sudo gnupg
+
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Create non-root build user
+        # makepkg refuses to run as root; build as an unprivileged user.
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Detect changed packages
+        id: detect
+        run: |
+          set -euo pipefail
+          # Differential base per event type (idempotent across triggers):
+          #   push            -> github.event.before (previous tip of main;
+          #                      zero-SHA on first push / force push -> full build)
+          #   pull_request    -> base SHA
+          #   workflow_dispatch -> everything
+          # NOTE: for push events actions/checkout points origin/main at the
+          # pushed commit, so `git diff origin/main..HEAD` would always be
+          # empty; the previous tip comes from github.event.before.
+          case "${GITHUB_EVENT_NAME}" in
+            push)
+              base="${{ github.event.before }}"
+              if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ]; then
+                mapfile -t changed < <(git diff --name-only "$base" "$GITHUB_SHA")
+              else
+                mapfile -t changed < <(git ls-files)
+              fi
+              ;;
+            pull_request)
+              mapfile -t changed < <(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$GITHUB_SHA")
+              ;;
+            workflow_dispatch)
+              mapfile -t changed < <(git ls-files)
+              ;;
+            *)
+              echo "Unsupported event: ${GITHUB_EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          # Map changed files to overlay/<repo-group>/<pkg>/ directories
+          # (top-level package dirs only; one package = one directory).
+          pkgs=()
+          for f in "${changed[@]}"; do
+            case "$f" in
+              overlay/*/*)
+                d="overlay/$(printf '%s' "$f" | cut -d/ -f2,3)"
+                if [ -f "$d/PKGBUILD" ]; then
+                  pkgs+=("$d")
+                fi
+                ;;
+            esac
+          done
+          mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]}" 2>/dev/null | sed '/^$/d' | sort -u)
+
+          {
+            echo "count=${#pkgs[@]}"
+            echo "pkgs<<PKGS_EOF"
+            printf '%s\n' "${pkgs[@]}"
+            echo "PKGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Package build (staging)"
+            echo ""
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Changed package dirs: **${#pkgs[@]}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build packages
+        run: |
+          set -euo pipefail
+          mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
+          for d in "${pkgs[@]}"; do
+            echo "::group::makepkg $d"
+            sudo -u builder -H bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm"
+            echo "::endgroup::"
+          done
+
+      - name: Sign and index packages into staging repo
+        id: repo
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p staging-repo
+          mapfile -t pkgfiles < <(find overlay -name '*.pkg.tar.zst' | sort)
+          # Ship the package files next to the DB so the artifact is a
+          # consumable pacman repo (consumed by 01-02 mkrootfs-aarch64.sh).
+          if [ "${#pkgfiles[@]}" -gt 0 ]; then
+            cp -v "${pkgfiles[@]}" staging-repo/
+          fi
+
+          ephemeral=no
+          on_main=no
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
+            on_main=yes
+          fi
+
+          if [ "$on_main" = "yes" ]; then
+            if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+              printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+              keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+              if [ -n "${GPG_PASSPHRASE:-}" ]; then
+                # Make the passphrase available to gpg-agent so repo-add -s
+                # can sign non-interactively.
+                echo "allow-preset-passphrase" >> /root/.gnupg/gpg-agent.conf
+                gpg-connect-agent reloadagent /bye >/dev/null 2>&1 || true
+                keygrip="$(gpg --list-secret-keys --with-keygrip "$keyid" | awk '/Keygrip/{print $3; exit}')"
+                /usr/lib/gnupg/gpg-preset-passphrase --passphrase "$GPG_PASSPHRASE" -c "$keygrip"
+              fi
+            else
+              # Ephemeral fallback: key valid for this run only. Prominently
+              # flagged in the job summary and FINGERPRINT.txt; artifacts it
+              # signed must not be consumed downstream.
+              ephemeral=yes
+              gpg --batch --passphrase '' --quick-generate-key \
+                'linuxphoneOS staging (EPHEMERAL, this run only)' ed25519 sign 0
+              keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+            fi
+            if [ "${#pkgfiles[@]}" -gt 0 ]; then
+              repo-add -s -k "$keyid" --include-sigs staging-repo/cn.db.tar.zst "${pkgfiles[@]}"
+            else
+              repo-add -s -k "$keyid" staging-repo/cn.db.tar.zst
+            fi
+            gpg --armor --export "$keyid" > staging-repo/staging-key.asc
+          else
+            # PR builds: no secrets access. Build-only, unsigned, advisory.
+            keyid=none
+            if [ "${#pkgfiles[@]}" -gt 0 ]; then
+              repo-add staging-repo/cn.db.tar.zst "${pkgfiles[@]}"
+            else
+              repo-add staging-repo/cn.db.tar.zst
+            fi
+          fi
+
+          {
+            echo "linuxphoneOS staging pacman repo"
+            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [ "$keyid" != "none" ]; then
+              echo "FINGERPRINT: $keyid"
+              echo "EPHEMERAL: $ephemeral"
+              if [ "$ephemeral" = "yes" ]; then
+                echo ""
+                echo "WARNING: EPHEMERAL key, generated for this run only."
+                echo "Not the persistent staging key; artifacts signed by it"
+                echo "must NOT be consumed by downstream pipelines. Configure"
+                echo "the GPG_PRIVATE_KEY / GPG_PASSPHRASE secrets to enable"
+                echo "the persistent staging key."
+              fi
+            else
+              echo "UNSIGNED: pull_request build (no secrets); not for consumption."
+            fi
+          } > staging-repo/FINGERPRINT.txt
+
+          {
+            echo ""
+            echo "- Packages indexed: ${#pkgfiles[@]}"
+            if [ "$keyid" != "none" ]; then
+              echo "- Signing key fingerprint: \`${keyid}\`"
+              if [ "$ephemeral" = "yes" ]; then
+                echo "- Signing key: **EPHEMERAL (this run only)** — not for downstream consumption"
+              else
+                echo "- Signing key: persistent staging key (from secrets)"
+              fi
+            else
+              echo "- Repo DB: **unsigned** (pull_request build, no secrets)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat staging-repo/FINGERPRINT.txt
+
+      - name: Upload staging-repo artifact
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: staging-repo
+          path: staging-repo/
+          if-no-files-found: error
