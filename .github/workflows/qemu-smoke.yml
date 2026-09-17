@@ -1,0 +1,193 @@
+name: qemu-smoke
+
+# CI smoke gate (01-03, SIM-02/SIM-03 CI face, QUAL-01).
+#
+# Whenever packages.yml completes successfully on main, download its
+# staging-repo artifact, build the 01-02 minimal aarch64 rootfs from it and
+# boot it headless in QEMU on a native arm64 runner:
+#   - the smoke assertion set gates the workflow (no continue-on-error —
+#     smoke failure == red build, that IS the gate);
+#   - the shipping-discipline assertions (no TrustAll / SigLevel policy /
+#     no device-firmware blobs) gate the same workflow;
+#   - smoke.json + discipline.json + serial/journal logs are archived as
+#     the smoke-results artifact and inlined into the job summary for AI
+#     triage and human review.
+#
+# Trigger notes:
+#   - workflow_run only fires on the default branch; the job-level `if`
+#     additionally restricts it to SUCCESSFUL runs of packages.yml whose
+#     head is main of THIS repository (PR runs of packages.yml build
+#     unsigned advisory repos and must never gate or be consumed).
+#   - schedule (daily) and workflow_dispatch re-run the gate against the
+#     latest successful main run's staging repo (regression detection
+#     between package changes; also the immediate-verification path right
+#     after this workflow lands on main).
+#
+# Hardening (threat model 01-03):
+#   - artifact download goes through the official gh CLI with the workflow's
+#     own github.token and an explicit --repo scope — no third-party
+#     artifact-download action in the chain (T-01-11);
+#   - every action is official (actions/*) and pinned by full commit SHA
+#     (T-01-03 / T-01-SC);
+#   - timeout-minutes bounds the TCG smoke so a wedged boot cannot hold the
+#     queue forever (T-01-13); a timeout counts as a failure.
+
+on:
+  workflow_run:
+    workflows: ["packages"]
+    types: [completed]
+  schedule:
+    # Daily at 02:41 UTC (staggered against gap-report's schedule).
+    - cron: "41 02 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # gh run list / gh run download read the packages.yml staging-repo artifact.
+  actions: read
+
+concurrency:
+  group: qemu-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      # Scope any gh call the 01-02 scripts make to this repository.
+      LPOS_GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Resolve source packages.yml run
+        id: srcrun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            run_id="${{ github.event.workflow_run.id }}"
+          else
+            # schedule / dispatch: gate against the latest successful main run
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                        --branch main --status success --limit 1 \
+                        --json databaseId --jq '.[0].databaseId')"
+          fi
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful packages.yml run on main to smoke-test yet"
+            exit 1
+          fi
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          {
+            echo "- Gate event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- staging-repo from packages.yml run: ${run_id}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download staging-repo artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/staging-repo"
+          # T-01-11: official gh CLI + this workflow's own token, explicitly
+          # scoped to this repository; no third-party download action.
+          gh run download "${{ steps.srcrun.outputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name staging-repo \
+            --dir "$RUNNER_TEMP/staging-repo"
+          ls -la "$RUNNER_TEMP/staging-repo"
+
+      - name: Install host QEMU and tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          # On Ubuntu/Debian the qemu-system-aarch64 binary ships in the
+          # qemu-system-arm package (there is no qemu-system-aarch64 apt
+          # package). The runner's container engine is preinstalled — the
+          # scripts fail-fast with repair commands if its daemon is down.
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-arm jq e2fsprogs openssh-client
+          qemu-system-aarch64 --version | head -1
+          docker info >/dev/null
+
+      - name: Shellcheck the harness scripts
+        run: |
+          set -euo pipefail
+          # shellcheck via the project's Arch Linux ARM build container
+          # (official-distribution package only, T-01-SC). The 01-02 scripts
+          # run the host path on this runner; the lint must not regress it.
+          docker run --rm -v "$PWD:/w" -w /w menci/archlinuxarm:base bash -c \
+            "pacman -Sy --noconfirm --needed shellcheck >/dev/null && \
+             find test tools -name '*.sh' -type f -print0 | xargs -0 -r shellcheck"
+
+      - name: Build smoke rootfs from the staging repo
+        run: |
+          set -euo pipefail
+          bash test/mkrootfs-aarch64.sh --repo-dir "$RUNNER_TEMP/staging-repo"
+
+      - name: Run headless QEMU smoke (gate)
+        run: |
+          set -euo pipefail
+          # --accel auto: native TCG on this arm64 runner (GitHub hosted
+          # arm64 runners expose no /dev/kvm); --timeout 1200 per the TCG
+          # budget. A non-zero exit fails this step => red workflow = gate.
+          bash test/smoke-aarch64.sh \
+            --repo-dir "$RUNNER_TEMP/staging-repo" \
+            --accel auto \
+            --timeout 1200
+
+      - name: Stage results for upload
+        id: results
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-results
+          # test/results/latest is a symlink; dereference so the artifact has
+          # a flat, stable layout (smoke.json, discipline.json, serial.log,
+          # journal.log, console.log, pacman-syu.log).
+          if [ -d test/results/latest ]; then
+            cp -L test/results/latest/. smoke-results/
+          else
+            echo "no test/results/latest — smoke never produced results" >&2
+          fi
+          ls -la smoke-results
+
+      - name: Upload smoke-results artifact
+        # v7.0.1
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: smoke-results
+          path: smoke-results/
+          if-no-files-found: warn
+
+      - name: Inline result JSON into the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## qemu-smoke results"
+            echo ""
+            echo "Source packages.yml run: ${BG_SRCRUN:-unknown}"
+            for f in smoke.json discipline.json; do
+              if [ -s "smoke-results/$f" ]; then
+                echo ""
+                echo "### ${f}"
+                echo ""
+                echo '```json'
+                cat "smoke-results/$f"
+                echo ""
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          BG_SRCRUN: ${{ steps.srcrun.outputs.run_id }}
