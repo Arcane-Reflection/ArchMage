@@ -8,6 +8,17 @@ name: packages
 #   (GitHub-native isolation, T-01-02): the repo DB is unsigned and marked
 #   not-for-consumption.
 # - workflow_dispatch: full build of every overlay/*/<pkg>/ directory.
+#
+# Hardening notes:
+# - every action is official (actions/*) and pinned by full commit SHA (T-01-03)
+# - change detection is idempotent across all three triggers
+# - makepkg SRCDEST/PKGDEST and the pacman package cache are cached between
+#   runs so repeat builds do not re-download sources and dependencies; the
+#   cache key contains the changed package dir names plus a hash of their
+#   PKGBUILDs. Cached PKGDEST content carries forward unchanged packages so
+#   the staging repo stays complete for consumers (01-02 mkrootfs); each
+#   rebuilt package prunes older versions of itself from PKGDEST.
+# - build logs are uploaded as an artifact on failure
 
 on:
   push:
@@ -57,9 +68,9 @@ jobs:
         run: |
           set -euo pipefail
           # Differential base per event type (idempotent across triggers):
-          #   push            -> github.event.before (previous tip of main;
-          #                      zero-SHA on first push / force push -> full build)
-          #   pull_request    -> base SHA
+          #   push              -> github.event.before (previous tip of main;
+          #                        zero-SHA on first push / force push -> full build)
+          #   pull_request      -> base SHA
           #   workflow_dispatch -> everything
           # NOTE: for push events actions/checkout points origin/main at the
           # pushed commit, so `git diff origin/main..HEAD` would always be
@@ -100,8 +111,14 @@ jobs:
           done
           mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]}" 2>/dev/null | sed '/^$/d' | sort -u)
 
+          # Cache key suffix: package dir names + hash of their PKGBUILDs, so
+          # the cache rotates whenever any relevant PKGBUILD changes.
+          slug="$(printf '%s' "${pkgs[@]}" | tr -c 'A-Za-z0-9._-' '-')"
+          pkghash="$( (printf '%s\0' "${pkgs[@]}"; cat -- ${pkgs[@]/%/\/PKGBUILD} 2>/dev/null) < /dev/null | sha256sum | cut -c1-12)"
           {
             echo "count=${#pkgs[@]}"
+            echo "slug=${slug:-none}"
+            echo "pkghash=${pkghash}"
             echo "pkgs<<PKGS_EOF"
             printf '%s\n' "${pkgs[@]}"
             echo "PKGS_EOF"
@@ -112,11 +129,32 @@ jobs:
             echo ""
             echo "- Event: \`${GITHUB_EVENT_NAME}\`"
             echo "- Changed package dirs: **${#pkgs[@]}**"
+            if [ "${#pkgs[@]}" -gt 0 ]; then
+              printf -- '- Built: `%s`\n' "${pkgs[@]}"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore makepkg and pacman caches
+        # v6.1.0 — keyed by changed package dir names + PKGBUILD hash so
+        # repeat builds reuse downloaded sources and cached dependencies.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            .cache/makepkg
+            /var/cache/pacman/pkg
+          key: makepkg-${{ steps.detect.outputs.slug }}-${{ steps.detect.outputs.pkghash }}
+          restore-keys: |
+            makepkg-${{ steps.detect.outputs.slug }}-
+            makepkg-
+
       - name: Build packages
+        env:
+          SRCDEST: ${{ github.workspace }}/.cache/makepkg/src
+          PKGDEST: ${{ github.workspace }}/.cache/makepkg/pkg
         run: |
           set -euo pipefail
+          mkdir -p "$SRCDEST" "$PKGDEST" build-logs
+          chown -R builder:builder "$GITHUB_WORKSPACE/.cache"
           mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
           # Leaf-first retry loop: in-tree meta packages (e.g. the
           # linuxphoneos-cn umbrella depends on linuxphoneos-cn-*) are
@@ -128,11 +166,28 @@ jobs:
             pass=$((pass + 1))
             next=()
             for d in "${remaining[@]}"; do
+              name="$(basename "$d")"
+              log="build-logs/${name}.log"
               echo "::group::makepkg $d (pass $pass)"
-              if sudo -u builder -H bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm"; then
+              if sudo -u builder -H env SRCDEST="$SRCDEST" PKGDEST="$PKGDEST" \
+                   bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm" 2>&1 | tee "$log"; then
+                # Prune older versions of this package from PKGDEST so the
+                # staging repo never indexes stale versions after a pkgver
+                # bump; the newest build wins.
+                newest="$(ls -t "$PKGDEST/${name}"-*.pkg.tar.zst 2>/dev/null | head -1 || true)"
+                if [ -n "$newest" ]; then
+                  for f in "$PKGDEST/${name}"-*.pkg.tar.zst; do
+                    if [ "$(readlink -f "$f")" != "$(readlink -f "$newest")" ]; then
+                      rm -f "$f" "$f.sig"
+                    fi
+                  done
+                fi
                 # Install into the container (ephemeral) so later packages
                 # resolve this one as a dependency.
-                pacman -U --noconfirm "$GITHUB_WORKSPACE"/$d/*.pkg.tar.zst
+                mapfile -t built < <(ls "$PKGDEST/${name}"-*.pkg.tar.zst 2>/dev/null || true)
+                if [ "${#built[@]}" -gt 0 ]; then
+                  pacman -U --noconfirm "${built[@]}"
+                fi
               else
                 next+=("$d")
               fi
@@ -150,12 +205,14 @@ jobs:
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          PKGDEST: ${{ github.workspace }}/.cache/makepkg/pkg
         run: |
           set -euo pipefail
           mkdir -p staging-repo
-          mapfile -t pkgfiles < <(find overlay -name '*.pkg.tar.zst' | sort)
-          # Ship the package files next to the DB so the artifact is a
-          # consumable pacman repo (consumed by 01-02 mkrootfs-aarch64.sh).
+          # PKGDEST carries this run's builds plus cached packages from
+          # earlier runs (unchanged dirs), so the staging repo stays
+          # complete for consumers.
+          mapfile -t pkgfiles < <(find "$PKGDEST" -maxdepth 1 -name '*.pkg.tar.zst' | sort)
           if [ "${#pkgfiles[@]}" -gt 0 ]; then
             cp -v "${pkgfiles[@]}" staging-repo/
           fi
@@ -226,6 +283,9 @@ jobs:
           {
             echo ""
             echo "- Packages indexed: ${#pkgfiles[@]}"
+            for pf in "${pkgfiles[@]}"; do
+              printf -- '  - `%s`\n' "$(basename "$pf")"
+            done
             if [ "$keyid" != "none" ]; then
               echo "- Signing key fingerprint: \`${keyid}\`"
               if [ "$ephemeral" = "yes" ]; then
@@ -246,3 +306,12 @@ jobs:
           name: staging-repo
           path: staging-repo/
           if-no-files-found: error
+
+      - name: Upload build logs
+        # v7.0.1 — failure diagnostics only.
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build-logs
+          path: build-logs/
+          if-no-files-found: ignore

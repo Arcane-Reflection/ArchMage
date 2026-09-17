@@ -4,7 +4,7 @@
 >
 > An open, CN-localized Arch Linux ARM phone OS: Phosh mobile stack plus factory CN defaults, maintained entirely as code.
 
-**状态 / Status:** 仓库骨架阶段(Phase 1)— CN 元包与 CI 出包环回可用;QEMU 开发环回与镜像构建见路线图。
+**状态 / Status:** Phase 1(骨架与开发环回)— CN 元包全家桶可本地构建,push 到 main 由 arm64 CI 出签名 staging 仓库;QEMU 开发环回与镜像构建见路线图。
 
 技术策略与阶段路线见 [STRATEGY.md](STRATEGY.md);贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
@@ -12,7 +12,7 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录) |
+| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录):mirror / net / locale / fonts-meta / 伞包 `linuxphoneos-cn` |
 | `overlay/phosh/` | Phosh 风味包(Phase 2 填充) |
 | `overlay/device/` | 设备 overlay(Phase 2,OnePlus 6) |
 | `overlay/qemu/` | QEMU 虚拟设备包(Phase 1,01-02) |
@@ -22,7 +22,9 @@
 | `tools/` | 自动化维护工具(Phase 4 填充) |
 | `.planning/` | 项目规划文档(GSD) |
 
-## 快速上手(三步)
+## 快速上手(本阶段成果)
+
+前置:Arch 系主机(装 `base-devel`)、`git`、GitHub CLI `gh`(已 `gh auth login`)。
 
 1. **克隆**:
 
@@ -39,6 +41,8 @@
    ls *.pkg.tar.zst
    ```
 
+   注:伞包 `linuxphoneos-cn` 依赖本仓库其它元包,请先构建四个叶子包,伞包最后构建(或用 `--nodeps`;CI 内自动按此处理)。
+
 3. **push 触发 CI 并获取签名 staging 仓库**(arm64 runner 构建 + `repo-add -s` 签名):
 
    ```bash
@@ -47,14 +51,33 @@
    gh run download -n staging-repo -D /tmp/staging-repo
    gpg --import /tmp/staging-repo/staging-key.asc
    gpg --verify /tmp/staging-repo/cn.db.tar.zst.sig /tmp/staging-repo/cn.db.tar.zst
+   bsdtar -tf /tmp/staging-repo/cn.db.tar.zst | grep '/desc'   # 入库的包
    ```
 
-## CI 与签名
+   `staging-repo` 工件内容:`cn.db.tar.zst`、`cn.db.tar.zst.sig`、`staging-key.asc`、`FINGERPRINT.txt`、`*.pkg.tar.zst` 包文件。用 pacman 验证可用 [test/fixtures/pacman-verify.conf](test/fixtures/pacman-verify.conf)。
 
-- `packages.yml` 在 `ubuntu-24.04-arm` runner 的 `menci/archlinuxarm:base-devel` 容器内构建 `overlay/` 中变更的包,产出 `staging-repo` 工件:`cn.db.tar.zst`、`cn.db.tar.zst.sig`、`staging-key.asc`、`FINGERPRINT.txt` 及包文件。
-- 本仓库需为 **public**(arm64 runner 免费额度仅限公有仓库)。
-- staging 签名密钥经仓库 secrets `GPG_PRIVATE_KEY` / `GPG_PASSPHRASE` 注入;secrets 缺失时 CI 用**仅本次运行有效**的 ephemeral 密钥并在工件与 job summary 显著标注(配置方法见 `.planning/phases/01-skeleton-devloop/01-01-PLAN.md` 的 user_setup)。stable 级密钥永不进入自动化(STRATEGY §8)。
-- 签名纪律:上游 ALARM 仓库 `SigLevel Required DatabaseOptional`(ALARM 不分发签名数据库),自有仓库 `Required`;全仓库禁 `TrustAll`(PITFALLS 2)。
+## CI 行为(`packages.yml`)
+
+| 触发 | 构建范围 | 签名 |
+| --- | --- | --- |
+| push 到 main(`overlay/**` 或 workflow 变更) | 差量(相对上一次 main tip) | ✅ secrets 密钥(缺失时 ephemeral 回退,显著标注) |
+| pull_request(`overlay/**`) | 差量(相对 base) | ❌ 无 secrets,工件 unsigned,仅供审阅 |
+| workflow_dispatch | 全量 | 同 main |
+
+要求与配置:
+
+- **仓库必须为 public**:GitHub arm64 runner(`ubuntu-24.04-arm`)免费额度仅限公有仓库。
+- **staging 签名密钥**(推荐配置;见 `.planning/phases/01-skeleton-devloop/01-01-PLAN.md` user_setup):仓库创建后,在本机生成并只把公钥指纹公开;私钥经 secrets 注入,stable 级密钥永不进入自动化(STRATEGY §8):
+
+  ```bash
+  gpg --quick-generate-key "linuxphoneOS staging" ed25519 sign 0   # 记下指纹
+  gpg --armor --export-secret-keys <FPR> | gh secret set GPG_PRIVATE_KEY
+  gh secret set GPG_PASSPHRASE        # 若设了口令
+  ```
+
+  secrets 未配置期间,main 构建用**仅本次运行有效**的 ephemeral 密钥并在工件与 job summary 显著标注,其签名工件不可被下游消费。
+
+- **签名纪律**(PITFALLS 2):上游 ALARM 仓库 `SigLevel Required DatabaseOptional`(ALARM 不分发签名数据库),自有仓库 `Required`;全仓库禁 `TrustAll`。
 
 ## 模拟器开发环回
 
