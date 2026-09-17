@@ -18,9 +18,9 @@
 #                                 exactly Required DatabaseOptional (ALARM
 #                                 does not distribute signed databases —
 #                                 PITFALLS 2);
-#                               - linuxphoneOS own-repo sections (name
-#                                 *linuxphoneos* or Server on a
-#                                 linuxphoneos host) must be Required
+#                               - ArchMage own-repo sections (name
+#                                 *archmage* or Server on a
+#                                 archmage host) must be Required
 #                                 WITHOUT DatabaseOptional (we sign our
 #                                 databases; weakening them is a policy
 #                                 breach).
@@ -65,7 +65,7 @@ Assertions (all gating; see the header comment for the full policy):
   no_trustall              zero "TrustAll" occurrences incl. comments
   siglevel_policy          Never/TrustAll banned; Required everywhere;
                            ALARM sections Required DatabaseOptional;
-                           linuxphoneos sections Required (no DatabaseOptional)
+                           archmage sections Required (no DatabaseOptional)
   no_device_firmware_blobs Qualcomm-shaped blobs outside the linux-firmware
                            whitelist (rootfs pacman local db)
 
@@ -120,7 +120,7 @@ PACMAN_D=$ROOTFS/etc/pacman.d
 FW_DIRS=("$ROOTFS/usr/lib/firmware" "$ROOTFS/boot")
 
 # --- assertion recording (same JSON style as test/lib/result.sh) ----------
-ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-discipline.XXXXXX")
+ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline.XXXXXX")
 trap 'rm -f "$ASSERT_FILE"' EXIT
 
 # record <name> <pass|fail> <details>
@@ -160,7 +160,7 @@ record no_trustall "$trustall_status" "$trustall_details"
 # comments blanked). Include files are NOT resolved: mirrorlists carry no
 # SigLevel in practice and the TrustAll scan already covers the whole
 # pacman.d tree; section classification falls back to the section NAME.
-ROWS_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-discipline-rows.XXXXXX")
+ROWS_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-rows.XXXXXX")
 awk '
     {
         line = $0
@@ -222,10 +222,10 @@ else
 
         # Classification.
         case "$sec" in
-            *linuxphoneos*) class=own ;;
+            *archmage*) class=own ;;
             *)
                 case "$servers" in
-                    *linuxphoneos*) class=own ;;
+                    *archmage*) class=own ;;
                     *) class="" ;;
                 esac
                 ;;
@@ -265,7 +265,7 @@ else
             own)
                 case ",$tokens," in
                     *,DATABASEOPTIONAL,*)
-                        sig_bad "[$sec] linuxphoneOS own repo must be Required without DatabaseOptional (effective '$effective' from $eff_src)" ;;
+                        sig_bad "[$sec] ArchMage own repo must be Required without DatabaseOptional (effective '$effective' from $eff_src)" ;;
                     *) : ;;
                 esac
                 ;;
@@ -277,7 +277,7 @@ else
             "$sec" "$class" "$effective" "$eff_src" >&2
     done
 fi
-[ -n "$sig_details" ] || sig_details="all repository sections comply (Never/TrustAll banned, Required everywhere, ALARM=DatabaseOptional, linuxphoneos=no DatabaseOptional)"
+[ -n "$sig_details" ] || sig_details="all repository sections comply (Never/TrustAll banned, Required everywhere, ALARM=DatabaseOptional, archmage=no DatabaseOptional)"
 record siglevel_policy "$sig_status" "$sig_details"
 
 # --------------------------------------------------------------------------
@@ -285,8 +285,8 @@ record siglevel_policy "$sig_status" "$sig_details"
 # --------------------------------------------------------------------------
 # Whitelist: files owned by any linux-firmware* package in the rootfs pacman
 # local db (covers the split linux-firmware-qcom etc. layout).
-WHITELIST=$(mktemp "${TMPDIR:-/tmp}/lpos-discipline-wl.XXXXXX")
-FOUND=$(mktemp "${TMPDIR:-/tmp}/lpos-discipline-found.XXXXXX")
+WHITELIST=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-wl.XXXXXX")
+FOUND=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-found.XXXXXX")
 for dbdir in "$ROOTFS"/var/lib/pacman/local/linux-firmware*/; do
     [ -f "$dbdir/files" ] || continue
     awk '

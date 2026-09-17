@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 45
     env:
       # Scope any gh call the 01-02 scripts make to this repository.
-      LPOS_GH_REPO: ${{ github.repository }}
+      ARCHMAGE_GH_REPO: ${{ github.repository }}
     steps:
       - name: Check out repository
         # v7.0.1

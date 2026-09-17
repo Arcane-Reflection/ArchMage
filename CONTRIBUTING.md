@@ -1,6 +1,6 @@
 # 贡献指南 / Contributing
 
-感谢参与 linuxphoneOS。本仓库的维护成本生死线写在 [STRATEGY.md](STRATEGY.md) §4;下面是最常用的规则。
+感谢参与 ArchMage。本仓库的维护成本生死线写在 [STRATEGY.md](STRATEGY.md) §4;下面是最常用的规则。
 
 ## 1. overlay-only(生死线)
 
@@ -23,7 +23,7 @@
   pkg: <repo>: <pkg>: <what>
   ```
 
-  例如:`pkg: cn: linuxphoneos-cn-net: add CN connectivity check`。
+  例如:`pkg: cn: archmage-cn-net: add CN connectivity check`。
 
 ## 3. PR 流程与 CI 签名边界
 
@@ -44,10 +44,10 @@ makepkg --printsrcinfo > /dev/null   # PKGBUILD 语法
 makepkg -sf --noconfirm              # 本地构建(arch=any,x86_64 主机即可)
 ```
 
-伞包 `linuxphoneos-cn` 依赖本仓库其它元包:先构建四个叶子包,伞包最后(或临时 `--nodeps`)。CN 元包的 install 脚本只在安装时生效,本地 makepkg 不会触碰你的系统。
+伞包 `archmage-cn` 依赖本仓库其它元包:先构建四个叶子包,伞包最后(或临时 `--nodeps`)。CN 元包的 install 脚本只在安装时生效,本地 makepkg 不会触碰你的系统。
 
 ## 6. 签名纪律(硬规则)
 
 - 上游 ALARM 仓库段:`SigLevel Required DatabaseOptional`(ALARM 不分发签名数据库,强制兼容项)。
-- linuxphoneOS 自有仓库段:`SigLevel Required`。
+- ArchMage 自有仓库段:`SigLevel Required`。
 - 任何 shipped 配置中出现 `TrustAll` = 立即拒绝(PITFALLS 2)。

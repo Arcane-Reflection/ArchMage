@@ -1,4 +1,4 @@
-# linuxphoneos-cn-locale install scriptlet (CN-02)
+# archmage-cn-locale install scriptlet (CN-02)
 #
 # - /etc/locale.conf is shipped package-owned (unowned upstream path) and
 #   protected via backup=().
@@ -10,17 +10,17 @@
 #   timezone choice is never touched again.
 
 post_install() {
-    _lpos_locale_configure
+    _archmage_locale_configure
 }
 
 post_upgrade() {
-    _lpos_locale_configure
+    _archmage_locale_configure
 }
 
-_lpos_locale_configure() {
+_archmage_locale_configure() {
     # --- timezone -----------------------------------------------------------
     local tz_target=../usr/share/zoneinfo/Asia/Shanghai
-    local marker=/etc/linuxphoneos/.timezone-factory-applied
+    local marker=/etc/archmage/.timezone-factory-applied
 
     if [ ! -L /etc/localtime ] && [ ! -e /etc/localtime ]; then
         # No timezone set at all (minimal rootfs): link the CN default.
@@ -33,7 +33,7 @@ _lpos_locale_configure() {
             # timezone; factory-apply Asia/Shanghai once and record the
             # prior link for reference.
             mkdir -p "$(dirname "$marker")"
-            readlink /etc/localtime > /etc/linuxphoneos/timezone.prior 2>/dev/null || true
+            readlink /etc/localtime > /etc/archmage/timezone.prior 2>/dev/null || true
             ln -sfn "$tz_target" /etc/localtime
             touch "$marker"
         fi
@@ -42,7 +42,7 @@ _lpos_locale_configure() {
 
     # --- locale.gen (owned by glibc; append-only, idempotent) ---------------
     if [ -f /etc/locale.gen ] && ! grep -qE '^zh_CN\.UTF-8[[:space:]]+UTF-8$' /etc/locale.gen; then
-        printf '\n# added by linuxphoneos-cn-locale (CN-02)\nzh_CN.UTF-8 UTF-8\n' >> /etc/locale.gen
+        printf '\n# added by archmage-cn-locale (CN-02)\nzh_CN.UTF-8 UTF-8\n' >> /etc/locale.gen
     fi
 
     # --- generate the locale -------------------------------------------------

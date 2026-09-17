@@ -1,15 +1,15 @@
-# linuxphoneOS CN mirror defaults (CN-01)
+# ArchMage CN mirror defaults (CN-01)
 #
-# Single source file for both linuxphoneOS pacman mirrorlists; the PKGBUILD
+# Single source file for both ArchMage pacman mirrorlists; the PKGBUILD
 # splits it at the BEGIN/END markers below:
-#   - "archlinuxarm" section -> /etc/pacman.d/linuxphoneos/mirrorlist
+#   - "archlinuxarm" section -> /etc/pacman.d/archmage/mirrorlist
 #     (applied to /etc/pacman.d/mirrorlist by the install scriptlet)
-#   - "archlinuxcn" section  -> /etc/pacman.d/linuxphoneos/mirrorlist-archlinuxcn
+#   - "archlinuxcn" section  -> /etc/pacman.d/archmage/mirrorlist-archlinuxcn
 #
 # Signature discipline (PITFALLS 2) lives in pacman.conf, never here:
 #   upstream ALARM repos : SigLevel = Required DatabaseOptional
 #                          (ALARM does not distribute signed databases)
-#   linuxphoneOS repos   : SigLevel = Required
+#   ArchMage repos   : SigLevel = Required
 # "SigLevel TrustAll" is forbidden anywhere in this project.
 #
 # ---- BEGIN archlinuxarm ----

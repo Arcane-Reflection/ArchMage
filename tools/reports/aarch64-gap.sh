@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # aarch64-gap.sh — daily aarch64 package gap report (BUILD-03, plan 01-03).
 #
-# Compares the linuxphoneOS flavour seed set against Arch x86_64 and ALARM
+# Compares the ArchMage flavour seed set against Arch x86_64 and ALARM
 # aarch64 repo databases and reports:
 #   missing[]   — seed packages that exist on x86_64 but are absent from
 #                 every aarch64 source (plus seeds no source knows, which
@@ -179,7 +179,7 @@ download_db() {
 index_source() {
     # index_source <db-file>  -> emits "name<TAB>version" (best per name)
     local db="$1" tmp
-    tmp=$(mktemp -d "${TMPDIR:-/tmp}/lpos-gap.XXXXXX")
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/archmage-gap.XXXXXX")
     if ! bsdtar -xf "$db" -C "$tmp" 2>/dev/null; then
         rm -rf "$tmp"
         return 1
@@ -221,7 +221,7 @@ for src in "${SOURCES[@]}"; do
     if ! download_db "$url" "$cache"; then
         die "could not download repo DB: $url"
     fi
-    idx=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-idx.XXXXXX")
+    idx=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-idx.XXXXXX")
     if ! index_source "$cache" > "$idx"; then
         rm -f "$idx"
         die "could not parse repo DB: $url"
@@ -247,9 +247,9 @@ done
 mapfile -t SEEDS < <(grep -vE '^[[:space:]]*(#|$)' "$SEED" | sed 's/[[:space:]]*$//' | awk '!seen[$0]++')
 [ "${#SEEDS[@]}" -gt 0 ] || die "seed file '$SEED' contains no package names"
 
-MISSING_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-missing.XXXXXX")
-NOTFOUND_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-notfound.XXXXXX")
-STALE_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-stale.XXXXXX")
+MISSING_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-missing.XXXXXX")
+NOTFOUND_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-notfound.XXXXXX")
+STALE_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-stale.XXXXXX")
 trap 'rm -f "$MISSING_FILE" "$NOTFOUND_FILE" "$STALE_FILE"' EXIT
 
 # estimate_age_days <version> — "" when no parseable date; else days old.
@@ -329,19 +329,19 @@ fi
 GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # JSONL fragments -> arrays.
-missing_json=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-mj.XXXXXX")
+missing_json=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-mj.XXXXXX")
 if [ "$missing_count" -gt 0 ]; then
     while IFS=$'\t' read -r pkg reason; do
         jq -cn --arg n "$pkg" --arg r "$reason" '{name: $n, reason: $r}' >> "$missing_json"
     done < "$MISSING_FILE"
 fi
-notfound_json=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-nj.XXXXXX")
+notfound_json=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-nj.XXXXXX")
 if [ "$notfound_count" -gt 0 ]; then
     while read -r pkg; do
         jq -cn --arg n "$pkg" '{name: $n}' >> "$notfound_json"
     done < "$NOTFOUND_FILE"
 fi
-stale_json=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-sj.XXXXXX")
+stale_json=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-sj.XXXXXX")
 if [ "$stale_count" -gt 0 ]; then
     while IFS=$'\t' read -r pkg xv av age; do
         if [ "$age" = NA ]; then agejson=null; else agejson=$age; fi
@@ -349,12 +349,12 @@ if [ "$stale_count" -gt 0 ]; then
             '{name: $n, x86_64_version: $x, aarch64_version: $a, age_estimate_days: $age}' >> "$stale_json"
     done < "$STALE_FILE"
 fi
-sources_json=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-srcj.XXXXXX")
+sources_json=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-srcj.XXXXXX")
 for m in "${SOURCE_META[@]}"; do
     IFS='|' read -r nm arch url <<<"$m"
     jq -cn --arg n "$nm" --arg a "$arch" --arg u "$url" '{name: $n, arch: $a, url: $u}' >> "$sources_json"
 done
-reasons_json=$(mktemp "${TMPDIR:-/tmp}/lpos-gap-rj.XXXXXX")
+reasons_json=$(mktemp "${TMPDIR:-/tmp}/archmage-gap-rj.XXXXXX")
 for r in ${reasons[@]+"${reasons[@]}"}; do
     jq -cn --arg r "$r" '$r' >> "$reasons_json"
 done

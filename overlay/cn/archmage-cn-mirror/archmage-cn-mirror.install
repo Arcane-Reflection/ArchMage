@@ -1,33 +1,33 @@
-# linuxphoneos-cn-mirror install scriptlet
+# archmage-cn-mirror install scriptlet
 #
 # /etc/pacman.d/mirrorlist is owned by the upstream `pacman-mirrorlist`
 # package (a hard dependency of pacman on ALARM), so this package does NOT
 # ship that path directly — doing so would hard-fail `pacman -U` with a
 # file conflict. Instead, the canonical mirrorlists live package-owned
-# under /etc/pacman.d/linuxphoneos/ (backup-protected) and this scriptlet
+# under /etc/pacman.d/archmage/ (backup-protected) and this scriptlet
 # applies the factory default to /etc/pacman.d/mirrorlist with pacnew-safe
 # semantics (same discipline as /etc/locale.gen handling in
-# linuxphoneos-cn-locale):
+# archmage-cn-locale):
 #
 #   - fresh rootfs (file missing)              -> install our default
 #   - already equal to our default             -> no-op (idempotent)
 #   - first install over pristine upstream     -> save upstream copy as
 #     mirrorlist, apply our default, drop a marker
 #   - marker present + local modifications     -> never clobber; publish
-#                                                advisory .lpos-new instead
+#                                                advisory .archmage-new instead
 
 post_install() {
-    _lpos_apply_factory_mirrorlist
+    _archmage_apply_factory_mirrorlist
 }
 
 post_upgrade() {
-    _lpos_apply_factory_mirrorlist
+    _archmage_apply_factory_mirrorlist
 }
 
-_lpos_apply_factory_mirrorlist() {
-    local default=/etc/pacman.d/linuxphoneos/mirrorlist
+_archmage_apply_factory_mirrorlist() {
+    local default=/etc/pacman.d/archmage/mirrorlist
     local target=/etc/pacman.d/mirrorlist
-    local marker=/etc/pacman.d/linuxphoneos/.factory-applied
+    local marker=/etc/pacman.d/archmage/.factory-applied
 
     [ -f "$default" ] || return 0
 
@@ -44,7 +44,7 @@ _lpos_apply_factory_mirrorlist() {
     if [ -e "$marker" ]; then
         # Our factory default was applied before; the file has since been
         # modified locally. Protect local edits: publish an advisory file.
-        install -Dm644 "$default" "$target.lpos-new"
+        install -Dm644 "$default" "$target.archmage-new"
     else
         # First install over the pristine upstream pacman-mirrorlist
         # default: record the upstream file, then apply ours (factory).

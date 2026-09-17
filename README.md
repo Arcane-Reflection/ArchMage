@@ -1,4 +1,4 @@
-# linuxphoneOS
+# ArchMage
 
 > 基于 Arch Linux ARM 的 CN 化开放 Linux 手机系统(overlay-only flavor):Phosh 移动栈 + 出厂 CN 默认值(镜像/NTP/DNS/locale/字体),以"一切皆代码"的方式维护。
 >
@@ -12,7 +12,7 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录):mirror / net / locale / fonts-meta / 伞包 `linuxphoneos-cn` |
+| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录):mirror / net / locale / fonts-meta / 伞包 `archmage-cn` |
 | `overlay/phosh/` | Phosh 风味包(Phase 2 填充) |
 | `overlay/device/` | 设备 overlay(Phase 2,OnePlus 6) |
 | `overlay/qemu/` | QEMU 虚拟设备包(Phase 1,01-02) |
@@ -29,19 +29,19 @@
 1. **克隆**:
 
    ```bash
-   git clone https://github.com/uMaj35ty/linuxphoneOS.git
-   cd linuxphoneOS
+   git clone https://github.com/uMaj35ty/ArchMage.git
+   cd ArchMage
    ```
 
 2. **本地构建一个 CN 元包**(`arch=(any)`,x86_64 主机无需交叉环境):
 
    ```bash
-   cd overlay/cn/linuxphoneos-cn-mirror
+   cd overlay/cn/archmage-cn-mirror
    makepkg -sf --noconfirm
    ls *.pkg.tar.zst
    ```
 
-   注:伞包 `linuxphoneos-cn` 依赖本仓库其它元包,请先构建四个叶子包,伞包最后构建(或用 `--nodeps`;CI 内自动按此处理)。
+   注:伞包 `archmage-cn` 依赖本仓库其它元包,请先构建四个叶子包,伞包最后构建(或用 `--nodeps`;CI 内自动按此处理)。
 
 3. **push 触发 CI 并获取签名 staging 仓库**(arm64 runner 构建 + `repo-add -s` 签名):
 
@@ -70,7 +70,7 @@
 - **staging 签名密钥**(推荐配置;见 `.planning/phases/01-skeleton-devloop/01-01-PLAN.md` user_setup):仓库创建后,在本机生成并只把公钥指纹公开;私钥经 secrets 注入,stable 级密钥永不进入自动化(STRATEGY §8):
 
   ```bash
-  gpg --quick-generate-key "linuxphoneOS staging" ed25519 sign 0   # 记下指纹
+  gpg --quick-generate-key "ArchMage staging" ed25519 sign 0   # 记下指纹
   gpg --armor --export-secret-keys <FPR> | gh secret set GPG_PRIVATE_KEY
   gh secret set GPG_PASSPHRASE        # 若设了口令
   ```
@@ -89,7 +89,7 @@
 bash test/smoke-aarch64.sh --from-ci
 ```
 
-一条命令完成:下载 main 最新成功 CI run 的 `staging-repo` 工件 → 构建最小 ALARM aarch64 rootfs(经容器内 `pacman -r` 增量安装 `openssh` + `linuxphoneos-cn` 伞包,出厂 CN 默认值随之生效)→ QEMU 无头启动 → SSH(`127.0.0.1:2222`)→ 断言 → 结构化 JSON。宿主机缺 `qemu-system-aarch64` 时会自动在 archlinux 容器内装 `qemu-emulators-full` 并重入自身,对开发者保持一条命令(需要可用容器引擎;docker daemon 未启动时脚本会打印修复命令)。
+一条命令完成:下载 main 最新成功 CI run 的 `staging-repo` 工件 → 构建最小 ALARM aarch64 rootfs(经容器内 `pacman -r` 增量安装 `openssh` + `archmage-cn` 伞包,出厂 CN 默认值随之生效)→ QEMU 无头启动 → SSH(`127.0.0.1:2222`)→ 断言 → 结构化 JSON。宿主机缺 `qemu-system-aarch64` 时会自动在 archlinux 容器内装 `qemu-emulators-full` 并重入自身,对开发者保持一条命令(需要可用容器引擎;docker daemon 未启动时脚本会打印修复命令)。
 
 断言(每条独立记录在 JSON;`phosh` 仅信息性,不作门禁 —— 图形栈不进 CI 门禁):
 
@@ -99,7 +99,7 @@ bash test/smoke-aarch64.sh --from-ci
 | `no_failed_units` | ✅ | `systemctl --failed --no-legend` 为空 |
 | `cn_mirror_config` | ✅ | `/etc/pacman.d/mirrorlist` 含 TUNA/USTC 源 |
 | `pacman_sync_via_cn_mirror` | ✅ | VM 内 `pacman -Syu` 成功(CN-01 环回证明) |
-| `cn_defaults_installed` | ✅ | `linuxphoneos-cn` + `noto-fonts-cjk` 已装且 locale 为 `zh_CN.UTF-8` |
+| `cn_defaults_installed` | ✅ | `archmage-cn` + `noto-fonts-cjk` 已装且 locale 为 `zh_CN.UTF-8` |
 | `phosh_informational` | ℹ️ | 仅记录 phosh 状态 |
 
 结果工件落在 `test/results/<ts>/`(软链 `test/results/latest` 指向最新):`smoke.json`(schema v1,含 `tier: "qemu"` 层级标注 —— QEMU 绿 ≠ 真机绿)、`serial.log`(串口)、`journal.log`(本次启动 journal)、`pacman-syu.log`、`console.log`。退出码 0 即门禁通过(供 01-03 CI 消费)。构建中间产物与一次性 SSH 私钥在 `test/build/`(已 gitignore,不入库)。

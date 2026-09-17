@@ -63,7 +63,7 @@ result_begin() {
     # Pre-create so the artifacts exist even when QEMU never boots.
     : > "$RESULT_DIR/serial.log"
     : > "$RESULT_DIR/journal.log"
-    RESULT_ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/lpos-assertions.XXXXXX")
+    RESULT_ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-assertions.XXXXXX")
     printf 'smoke result dir: %s\n' "$RESULT_DIR" >&2
 }
 

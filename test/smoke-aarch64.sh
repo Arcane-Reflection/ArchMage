@@ -111,7 +111,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
-REPO_ROOT=$(lpos::repo_root)
+REPO_ROOT=$(archmage::repo_root)
 AARCH64_DIR=$REPO_ROOT/test/build/aarch64
 RESULTS_ROOT=$REPO_ROOT/test/results
 SMOKE_KEY=$AARCH64_DIR/smoke_key
@@ -128,7 +128,7 @@ artifacts_present() {
 # --------------------------------------------------------------------------
 if [ "$INNER" = no ]; then
     if [ "$REBUILD" = yes ] || ! artifacts_present; then
-        lpos_info "building the aarch64 smoke rootfs first (mkrootfs-aarch64.sh)"
+        archmage_info "building the aarch64 smoke rootfs first (mkrootfs-aarch64.sh)"
         MKROOTFS_ARGS=()
         if [ "$MODE" = dir ]; then
             MKROOTFS_ARGS+=(--repo-dir "$REPO_DIR_ARG")
@@ -139,15 +139,15 @@ if [ "$INNER" = no ]; then
     fi
 
     if ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
-        lpos_info "qemu-system-aarch64 missing on host — self-wrapping the QEMU phase in an archlinux container (qemu-emulators-full; qemu-desktop only ships x86_64 emulators)"
-        lpos::engine_detect
+        archmage_info "qemu-system-aarch64 missing on host — self-wrapping the QEMU phase in an archlinux container (qemu-emulators-full; qemu-desktop only ships x86_64 emulators)"
+        archmage::engine_detect
         WRAP_ARGS=(--rm --platform linux/x86_64 -v "$REPO_ROOT":/w -w /w)
-        if lpos::kvm_available; then
+        if archmage::kvm_available; then
             WRAP_ARGS+=(--device /dev/kvm)
         fi
         # The container runs as root; RESULT_DIR files must go back to the
         # invoking user (chowned in the inner EXIT trap).
-        WRAP_ARGS+=(-e LPOS_HOST_UID="$(id -u)")
+        WRAP_ARGS+=(-e ARCHMAGE_HOST_UID="$(id -u)")
         INNER_ARGS=(--in-container)
         if [ ${#ARGS_OUT[@]} -gt 0 ]; then
             INNER_ARGS+=("${ARGS_OUT[@]}")
@@ -158,7 +158,7 @@ if [ "$INNER" = no ]; then
         fi
         set +e
         # shellcheck disable=SC2086
-        "$LPOS_ENGINE" run "${WRAP_ARGS[@]}" archlinux:base bash -c \
+        "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" archlinux:base bash -c \
             "pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs >/dev/null 2>&1 && bash test/smoke-aarch64.sh $INNER_CMD"
         RC=$?
         set -e
@@ -169,20 +169,20 @@ fi
 # --------------------------------------------------------------------------
 # QEMU phase (native host with qemu, or inside the self-wrapped container).
 # --------------------------------------------------------------------------
-lpos::require_cmd qemu-system-aarch64 jq ssh
+archmage::require_cmd qemu-system-aarch64 jq ssh
 
 ACCEL_RESOLVED=$ACCEL
 case "$ACCEL" in
     auto)
-        if lpos::host_is_aarch64 && lpos::kvm_available; then
+        if archmage::host_is_aarch64 && archmage::kvm_available; then
             ACCEL_RESOLVED=kvm
         else
             ACCEL_RESOLVED=tcg
         fi
         ;;
     kvm)
-        lpos::host_is_aarch64 || die "--accel kvm requires an aarch64 host"
-        lpos::kvm_available || die "--accel kvm requires a writable /dev/kvm"
+        archmage::host_is_aarch64 || die "--accel kvm requires an aarch64 host"
+        archmage::kvm_available || die "--accel kvm requires a writable /dev/kvm"
         ;;
     tcg)
         ;;
@@ -239,20 +239,20 @@ cleanup() {
     rm -f "$PID_FILE"
     # Inside the self-wrapped container we run as root: give the run
     # directory back to the invoking host user.
-    if [ "$INNER" = yes ] && [ -n "${LPOS_HOST_UID:-}" ] && [ -n "$RESULT_DIR" ]; then
-        chown -R "$LPOS_HOST_UID" "$RESULT_DIR" 2>/dev/null || true
+    if [ "$INNER" = yes ] && [ -n "${ARCHMAGE_HOST_UID:-}" ] && [ -n "$RESULT_DIR" ]; then
+        chown -R "$ARCHMAGE_HOST_UID" "$RESULT_DIR" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT INT TERM
 
-lpos_info "starting QEMU ($ACCEL_RESOLVED, timeout ${TIMEOUT}s) — serial: $SERIAL_LOG"
+archmage_info "starting QEMU ($ACCEL_RESOLVED, timeout ${TIMEOUT}s) — serial: $SERIAL_LOG"
 qemu-system-aarch64 \
     -M virt -cpu "$QEMU_CPU" -m 2048 -smp 2 \
     -kernel "$AARCH64_DIR/Image" \
     -initrd "$AARCH64_DIR/initramfs-linux.img" \
     -append "root=/dev/vda rw console=ttyAMA0" \
     -drive file="$AARCH64_DIR/rootfs.ext4",if=virtio,format=raw \
-    -netdev user,id=n0,hostfwd="$(lpos::hostfwd_tcp 2222)" \
+    -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)" \
     -device virtio-net-pci,netdev=n0 \
     -nographic -monitor none -no-reboot \
     -serial "file:$SERIAL_LOG" \
@@ -328,12 +328,12 @@ fi
 
 # 5. CN defaults installed (gate; ROADMAP criterion 4 made explicit — also
 #    the in-loop proof of CN-02).
-if vm_ssh "pacman -Q linuxphoneos-cn noto-fonts-cjk" >/dev/null 2>&1 &&
+if vm_ssh "pacman -Q archmage-cn noto-fonts-cjk" >/dev/null 2>&1 &&
     vm_ssh "grep -q 'zh_CN.UTF-8' /etc/locale.conf" >/dev/null 2>&1; then
     result_assert cn_defaults_installed pass \
-        "pacman -Q linuxphoneos-cn noto-fonts-cjk ok; /etc/locale.conf has zh_CN.UTF-8"
+        "pacman -Q archmage-cn noto-fonts-cjk ok; /etc/locale.conf has zh_CN.UTF-8"
 else
-    CN_PKGS=$(vm_ssh "pacman -Q linuxphoneos-cn noto-fonts-cjk" 2>&1 || true)
+    CN_PKGS=$(vm_ssh "pacman -Q archmage-cn noto-fonts-cjk" 2>&1 || true)
     CN_LOCALE=$(vm_ssh "grep -c 'zh_CN.UTF-8' /etc/locale.conf" 2>/dev/null || true)
     result_assert cn_defaults_installed fail \
         "pkgs: ${CN_PKGS//$'\n'/; }; locale.conf zh_CN.UTF-8 count: '${CN_LOCALE:-<none>}'"
@@ -352,9 +352,9 @@ result_assert phosh_informational "$PHOSH_STATUS" \
 
 # Archive the boot journal before shutdown (triage artifact).
 if VMSSH_TIMEOUT=60 vm_ssh "journalctl -b --no-pager" > "$JOURNAL_LOG" 2>/dev/null; then
-    lpos_info "journal captured: $JOURNAL_LOG"
+    archmage_info "journal captured: $JOURNAL_LOG"
 else
-    lpos_warn "journal capture failed (guest may be degraded) — see serial log"
+    archmage_warn "journal capture failed (guest may be degraded) — see serial log"
 fi
 
 # Graceful shutdown.
@@ -368,8 +368,8 @@ done
 result_finish
 
 if [ "$RESULT_STATUS" = pass ]; then
-    lpos_info "smoke PASS: $RESULT_DIR/smoke.json"
+    archmage_info "smoke PASS: $RESULT_DIR/smoke.json"
     exit 0
 fi
-lpos_warn "smoke FAIL: $RESULT_DIR/smoke.json"
+archmage_warn "smoke FAIL: $RESULT_DIR/smoke.json"
 exit 1

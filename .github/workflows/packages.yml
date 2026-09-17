@@ -157,7 +157,7 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE/.cache"
           mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
           # Leaf-first retry loop: in-tree meta packages (e.g. the
-          # linuxphoneos-cn umbrella depends on linuxphoneos-cn-*) are
+          # archmage-cn umbrella depends on archmage-cn-*) are
           # installed into this ephemeral container as soon as they build,
           # so dependent packages can resolve them with makepkg -s.
           remaining=("${pkgs[@]}")
@@ -241,7 +241,7 @@ jobs:
               # signed must not be consumed downstream.
               ephemeral=yes
               gpg --batch --passphrase '' --quick-generate-key \
-                'linuxphoneOS staging (EPHEMERAL, this run only)' ed25519 sign 0
+                'ArchMage staging (EPHEMERAL, this run only)' ed25519 sign 0
               keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
             fi
             if [ "${#pkgfiles[@]}" -gt 0 ]; then
@@ -261,7 +261,7 @@ jobs:
           fi
 
           {
-            echo "linuxphoneOS staging pacman repo"
+            echo "ArchMage staging pacman repo"
             echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             if [ "$keyid" != "none" ]; then

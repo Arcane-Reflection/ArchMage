@@ -1,0 +1,21 @@
+# Maintainer: ArchMage contributors
+#
+# ArchMage CN defaults umbrella (CN-01 + CN-02): the single
+# installation entry point pulled in by image profiles at mirror-build time.
+#
+# Overlay-only (STRATEGY §4): every dependency is either an upstream
+# package or a ArchMage CN meta package; no upstream package is forked,
+# conflicted or replaced.
+
+pkgname=archmage-cn
+pkgver=1
+pkgrel=1
+pkgdesc='ArchMage CN defaults umbrella: factory CN baseline (mirrors, network, locale, fonts, opencc)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('archmage-cn-mirror'
+         'archmage-cn-net'
+         'archmage-cn-locale'
+         'archmage-cn-fonts-meta'
+         'opencc')

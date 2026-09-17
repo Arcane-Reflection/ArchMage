@@ -1,0 +1,14 @@
+# Maintainer: ArchMage contributors
+#
+# CN font baseline for ArchMage (CN-02): pure meta package.
+# Pulls the upstream Noto CJK fonts as the factory CN font baseline;
+# no fonts are built or forked here (STRATEGY §4).
+
+pkgname=archmage-cn-fonts-meta
+pkgver=1
+pkgrel=1
+pkgdesc='CN font baseline meta package for ArchMage: Noto CJK as factory default'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('noto-fonts-cjk')

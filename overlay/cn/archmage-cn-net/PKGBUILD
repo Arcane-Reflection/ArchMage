@@ -1,0 +1,32 @@
+# Maintainer: ArchMage contributors
+#
+# CN network defaults for ArchMage (CN-01): NTP, DNS, connectivity
+# check — all reachable from CN networks by default.
+#
+# Overlay-only (STRATEGY §4): drop-in configuration only, never overwrites
+# upstream whole files; depends on upstream packages, forks nothing.
+
+pkgname=archmage-cn-net
+pkgver=1
+pkgrel=1
+pkgdesc='CN network defaults for ArchMage: aliyun NTP, CN public DNS, CN-reachable connectivity check'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('systemd' 'networkmanager')
+source=('timesyncd-cn.conf'
+        'resolved-cn.conf'
+        'nm-connectivity-cn.conf')
+sha256sums=('01b3da6052ff8de3f44d75c958e4bcd312cff6e67598205d68cfb85a5cf7d4c9'
+            '0b54022385bac78575e4c75b647d220ed83e39304b1997dff433df48ada59108'
+            '62b2c7a1e7adc7185b0e0d68b10b281c34f74e1b6099d128fb16728f21831283')
+backup=('etc/systemd/timesyncd.conf.d/90-archmage-cn.conf'
+        'etc/systemd/resolved.conf.d/90-archmage-cn.conf'
+        'etc/NetworkManager/conf.d/90-archmage-cn.conf')
+
+package() {
+    cd "$srcdir"
+    install -Dm644 timesyncd-cn.conf  "$pkgdir/etc/systemd/timesyncd.conf.d/90-archmage-cn.conf"
+    install -Dm644 resolved-cn.conf    "$pkgdir/etc/systemd/resolved.conf.d/90-archmage-cn.conf"
+    install -Dm644 nm-connectivity-cn.conf "$pkgdir/etc/NetworkManager/conf.d/90-archmage-cn.conf"
+}

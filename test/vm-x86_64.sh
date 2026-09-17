@@ -4,7 +4,7 @@
 # reserved for the headless smoke loop (test/smoke-aarch64.sh).
 #
 # Usage:
-#   test/vm-x86_64.sh --image /path/to/image.raw      # or set LPOS_IMAGE
+#   test/vm-x86_64.sh --image /path/to/image.raw      # or set ARCHMAGE_IMAGE
 #   test/vm-x86_64.sh --check --image /path/to/image  # self-check only
 #   test/vm-x86_64.sh --kernel vmlinuz --initrd initramfs --image img.raw
 #                       # direct-kernel boot bypass (no EFI firmware needed)
@@ -30,7 +30,7 @@ Usage:
 
 Options:
   --image PATH     Disk image to boot (raw or qcow2). May also be provided
-                   via the LPOS_IMAGE environment variable.
+                   via the ARCHMAGE_IMAGE environment variable.
   --check          Self-check mode: verify qemu-system-x86_64 presence
                    (ERROR when missing), warn about missing KVM/firmware,
                    report READY when an existing --image is given. Never
@@ -60,7 +60,7 @@ die() {
 print_image_guidance() {
     cat >&2 <<'EOF'
 
-No --image given (and LPOS_IMAGE is unset).
+No --image given (and ARCHMAGE_IMAGE is unset).
 
 The x86_64 image is a MANUAL input for now (documented stub; automated
 image builds land in Phase 2):
@@ -75,11 +75,11 @@ image builds land in Phase 2):
      the repo): https://kupfer.gitlab.io/kupferbootstrap/
 
 Then: test/vm-x86_64.sh --image /path/to/image.raw
-      (or: export LPOS_IMAGE=/path/to/image.raw)
+      (or: export ARCHMAGE_IMAGE=/path/to/image.raw)
 EOF
 }
 
-IMAGE=${LPOS_IMAGE:-}
+IMAGE=${ARCHMAGE_IMAGE:-}
 CHECK=no
 KERNEL=""
 INITRD=""
@@ -173,7 +173,7 @@ detect_disk_format() {
 }
 
 ACCEL_LABEL=kvm
-if ! lpos::kvm_available; then
+if ! archmage::kvm_available; then
     ACCEL_LABEL=tcg
 fi
 
@@ -186,15 +186,15 @@ if [ "$CHECK" = yes ]; then
         printf 'ERROR   qemu-system-x86_64 not found (Arch: pacman -S qemu-desktop)\n' >&2
         ERRORS=1
     fi
-    if lpos::kvm_available; then
+    if archmage::kvm_available; then
         printf 'OK      /dev/kvm writable — KVM enabled\n'
     else
-        lpos_warn "/dev/kvm not writable — WARNING only, will fall back to TCG (slow but functional)"
+        archmage_warn "/dev/kvm not writable — WARNING only, will fall back to TCG (slow but functional)"
     fi
     if FW_CODE=$(find_firmware); then
         printf 'OK      EFI firmware: %s\n' "$FW_CODE"
     else
-        lpos_warn "no OVMF/edk2 firmware found — EFI boot unavailable (use --kernel/--initrd, or install qemu-desktop/edk2)"
+        archmage_warn "no OVMF/edk2 firmware found — EFI boot unavailable (use --kernel/--initrd, or install qemu-desktop/edk2)"
     fi
     if [ -n "$IMAGE" ]; then
         if [ -s "$IMAGE" ]; then
@@ -222,25 +222,25 @@ if [ -z "$IMAGE" ]; then
     die "no image given"
 fi
 [ -s "$IMAGE" ] || die "image '$IMAGE' does not exist or is empty"
-lpos::require_cmd qemu-system-x86_64
+archmage::require_cmd qemu-system-x86_64
 
 QEMU_ARGS=(-M q35 -m "$MEM" -smp 2
     -drive file="$IMAGE",if=virtio,format="$(detect_disk_format "$IMAGE")"
     -device virtio-vga
     -device qemu-xhci -device usb-tablet
-    -netdev user,id=n0,hostfwd="$(lpos::hostfwd_tcp 2222)"
+    -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)"
     -device virtio-net-pci,netdev=n0)
 
 if [ "$ACCEL_LABEL" = kvm ]; then
-    lpos_info "KVM available — accel=kvm"
+    archmage_info "KVM available — accel=kvm"
     QEMU_ARGS+=(-accel kvm -cpu host)
 else
-    lpos_warn "/dev/kvm not writable — falling back to TCG (slow; install/enable KVM for interactive use)"
+    archmage_warn "/dev/kvm not writable — falling back to TCG (slow; install/enable KVM for interactive use)"
     QEMU_ARGS+=(-accel tcg -cpu max)
 fi
 
 if [ -n "$KERNEL" ]; then
-    lpos_info "direct-kernel boot: $KERNEL"
+    archmage_info "direct-kernel boot: $KERNEL"
     QEMU_ARGS+=(-kernel "$KERNEL" -append "$APPEND")
     if [ -n "$INITRD" ]; then
         QEMU_ARGS+=(-initrd "$INITRD")
@@ -255,12 +255,12 @@ else
     if [ ! -f "$FW_VARS" ]; then
         cp "$FW_VARS_SRC" "$FW_VARS"
     fi
-    lpos_info "EFI boot: $FW_CODE (vars: $FW_VARS)"
+    archmage_info "EFI boot: $FW_CODE (vars: $FW_VARS)"
     QEMU_ARGS+=(
         -drive if=pflash,format=raw,readonly=on,file="$FW_CODE"
         -drive if=pflash,format=raw,file="$FW_VARS"
     )
 fi
 
-lpos_info "launching interactive VM (SSH forward: 127.0.0.1:2222 -> guest :22)"
+archmage_info "launching interactive VM (SSH forward: 127.0.0.1:2222 -> guest :22)"
 exec qemu-system-x86_64 "${QEMU_ARGS[@]}"

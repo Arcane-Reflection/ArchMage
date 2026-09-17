@@ -1,7 +1,7 @@
 name: gap-report
 
 # Daily aarch64 gap report (BUILD-03, plan 01-03): quantifies the aarch64
-# package gap for the linuxphoneOS flavour seed set against Arch x86_64 and
+# package gap for the ArchMage flavour seed set against Arch x86_64 and
 # ALARM aarch64 repo databases — the EndeavourOS-ARM death cause, watched
 # from day one (PITFALLS 1 / RFC0032).
 #

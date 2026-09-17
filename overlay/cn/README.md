@@ -9,4 +9,4 @@ and depend on upstream packages; upstream PKGBUILDs are never forked.
 
 Populated starting in Phase 1 (plan 01-01): mirror, net
 (NTP/DNS/connectivity), locale, fonts meta packages and the
-`linuxphoneos-cn` umbrella package.
+`archmage-cn` umbrella package.
