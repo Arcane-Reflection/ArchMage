@@ -144,6 +144,19 @@ jobs:
             --accel auto \
             --timeout 1200
 
+      - name: Assert shipping discipline (gate)
+        # QUAL-01: assert the FACTORY rootfs (retained by mkrootfs, 01-02)
+        # — no TrustAll, SigLevel policy, no device firmware blobs. Runs
+        # even when the smoke step failed but the rootfs exists (independent
+        # red signal); its discipline.json joins the smoke-results artifact.
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          bash tools/checks/assert-shipping-discipline.sh \
+            --rootfs-dir test/build/aarch64/rootfs \
+            --out test/build/aarch64/discipline.json
+          cp test/build/aarch64/discipline.json test/results/latest/discipline.json
+
       - name: Stage results for upload
         id: results
         if: always()

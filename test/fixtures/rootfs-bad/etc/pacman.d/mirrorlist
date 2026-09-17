@@ -1,0 +1,6 @@
+# NEGATIVE fixture component (see etc/pacman.conf header). Realistic ALARM
+# mirrorlist so the fixture parses like a production tree; carries no
+# violation itself — the planted violations live in pacman.conf and under
+# usr/lib/firmware/.
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
+Server = https://mirrors.ustc.edu.cn/archlinuxarm/$arch/$repo

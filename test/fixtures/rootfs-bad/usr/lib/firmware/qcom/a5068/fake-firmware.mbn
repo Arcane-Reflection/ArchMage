@@ -1,0 +1,3 @@
+FAKE Qualcomm device-extracted firmware blob (test fixture, 01-03 Task 2).
+Not redistributable, not owned by any linux-firmware package; the discipline
+checker must flag this file via the .mbn extension AND the a5068 directory.
