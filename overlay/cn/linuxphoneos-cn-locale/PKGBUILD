@@ -1,0 +1,28 @@
+# Maintainer: linuxphoneOS contributors
+#
+# CN locale defaults for linuxphoneOS (CN-02): zh_CN.UTF-8 default locale,
+# Asia/Shanghai factory timezone, zh_CN locale generation.
+#
+# Overlay-only (STRATEGY §4): depends on upstream glibc, forks nothing.
+# /etc/locale.gen (glibc-owned) is never shipped; the install scriptlet
+# enables zh_CN.UTF-8 with a pacnew-safe in-place append and runs locale-gen.
+
+pkgname=linuxphoneos-cn-locale
+pkgver=1
+pkgrel=1
+pkgdesc='CN locale defaults for linuxphoneOS: zh_CN.UTF-8 locale, Asia/Shanghai factory timezone'
+arch=(any)
+url='https://github.com/uMaj35ty/linuxphoneOS'
+license=('MIT')
+depends=('glibc')
+install=linuxphoneos-cn-locale.install
+source=('locale.conf')
+sha256sums=('c5b1ded9b5bf5353c7cacb2b35688d770c1f0b03ce2ceab247b1f30f0a22a2ba')
+backup=('etc/locale.conf')
+
+package() {
+    cd "$srcdir"
+    # /etc/locale.conf is not owned by any upstream package: ship directly,
+    # backup-protected so local edits survive upgrades.
+    install -Dm644 locale.conf "$pkgdir/etc/locale.conf"
+}

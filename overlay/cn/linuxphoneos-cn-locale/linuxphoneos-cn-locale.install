@@ -1,0 +1,52 @@
+# linuxphoneos-cn-locale install scriptlet (CN-02)
+#
+# - /etc/locale.conf is shipped package-owned (unowned upstream path) and
+#   protected via backup=().
+# - /etc/locale.gen is owned by the upstream glibc package, so this package
+#   never ships it; the scriptlet ensures zh_CN.UTF-8 is enabled by a
+#   minimal in-place append (pacnew-safe: upstream file is never replaced).
+# - /etc/localtime: factory-applied Asia/Shanghai symlink exactly once
+#   (only when missing or pointing at a different zone); an admin's later
+#   timezone choice is never touched again.
+
+post_install() {
+    _lpos_locale_configure
+}
+
+post_upgrade() {
+    _lpos_locale_configure
+}
+
+_lpos_locale_configure() {
+    # --- timezone -----------------------------------------------------------
+    local tz_target=../usr/share/zoneinfo/Asia/Shanghai
+    local marker=/etc/linuxphoneos/.timezone-factory-applied
+
+    if [ ! -L /etc/localtime ] && [ ! -e /etc/localtime ]; then
+        # No timezone set at all (minimal rootfs): link the CN default.
+        ln -s "$tz_target" /etc/localtime
+        mkdir -p "$(dirname "$marker")" && touch "$marker"
+    elif [ "$(readlink /etc/localtime 2>/dev/null || true)" != "$tz_target" ] \
+      && [ "$(readlink /etc/localtime 2>/dev/null || true)" != "/usr/share/zoneinfo/Asia/Shanghai" ]; then
+        if [ ! -e "$marker" ]; then
+            # First install: the image carries the build-time default
+            # timezone; factory-apply Asia/Shanghai once and record the
+            # prior link for reference.
+            mkdir -p "$(dirname "$marker")"
+            readlink /etc/localtime > /etc/linuxphoneos/timezone.prior 2>/dev/null || true
+            ln -sfn "$tz_target" /etc/localtime
+            touch "$marker"
+        fi
+        # Marker present: an admin has chosen a timezone since; never touch.
+    fi
+
+    # --- locale.gen (owned by glibc; append-only, idempotent) ---------------
+    if [ -f /etc/locale.gen ] && ! grep -qE '^zh_CN\.UTF-8[[:space:]]+UTF-8$' /etc/locale.gen; then
+        printf '\n# added by linuxphoneos-cn-locale (CN-02)\nzh_CN.UTF-8 UTF-8\n' >> /etc/locale.gen
+    fi
+
+    # --- generate the locale -------------------------------------------------
+    if [ -x /usr/bin/locale-gen ]; then
+        locale-gen
+    fi
+}
