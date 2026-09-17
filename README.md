@@ -114,3 +114,8 @@ test/vm-x86_64.sh --image /path/to/image.raw           # 交互启动(KVM,无 KV
 virtio 存储/网络 + virtio-vga + usb-tablet,内存 4096M,SSH 转发仅绑 `127.0.0.1:2222`;raw 与 qcow2 均可(EFI 引导走 OVMF,EFI 变量持久化在镜像旁 `<image>.vars.fd`;也可用 `--kernel/--initrd` 直启旁路)。
 
 **镜像获取当前为手动步骤(SKELETON 标注的 stub,Phase 2 由 kupferbootstrap 自动化)**:可现成使用 [postmarketOS generic x86_64 Phosh 镜像](https://images.postmarketos.org/genericx86/)(`unxz` 解压后直接传入),脚本未提供镜像时也会打印该指引并以非零退出。
+
+## 命名与商标
+
+- **ArchMage**(法师帽 × Arch 三角)是独立社区项目,**不是** Arch Linux 官方产品;本项目基于 [Arch Linux ARM](https://archlinuxarm.org) 与 danctnix/kupferbootstrap/pmaports 等上游构建("derived from Arch Linux")。
+- 与 AUR 上的 `archmage`(CHM 工具)仅同名不同域:本项目的包均使用 `archmage-cn-*` 等前缀命名空间,不发布裸名 `archmage` 包。
