@@ -81,4 +81,36 @@
 
 ## 模拟器开发环回
 
-(由 Phase 1 计划 01-02 填充:`test/vm-x86_64.sh` 交互 VM 与 `test/smoke-aarch64.sh` 无头冒烟。本节当前不提供任何命令。)
+两条命令构成开发环回的"运行与验证"半边。
+
+### aarch64 无头冒烟(一条命令,真实端到端)
+
+```bash
+bash test/smoke-aarch64.sh --from-ci
+```
+
+一条命令完成:下载 main 最新成功 CI run 的 `staging-repo` 工件 → 构建最小 ALARM aarch64 rootfs(经容器内 `pacman -r` 增量安装 `openssh` + `linuxphoneos-cn` 伞包,出厂 CN 默认值随之生效)→ QEMU 无头启动 → SSH(`127.0.0.1:2222`)→ 断言 → 结构化 JSON。宿主机缺 `qemu-system-aarch64` 时会自动在 archlinux 容器内装 `qemu-emulators-full` 并重入自身,对开发者保持一条命令(需要可用容器引擎;docker daemon 未启动时脚本会打印修复命令)。
+
+断言(每条独立记录在 JSON;`phosh` 仅信息性,不作门禁 —— 图形栈不进 CI 门禁):
+
+| 断言 | 门禁 | 内容 |
+| --- | --- | --- |
+| `multi_user` | ✅ | `systemctl is-active multi-user.target` = active |
+| `no_failed_units` | ✅ | `systemctl --failed --no-legend` 为空 |
+| `cn_mirror_config` | ✅ | `/etc/pacman.d/mirrorlist` 含 TUNA/USTC 源 |
+| `pacman_sync_via_cn_mirror` | ✅ | VM 内 `pacman -Syu` 成功(CN-01 环回证明) |
+| `cn_defaults_installed` | ✅ | `linuxphoneos-cn` + `noto-fonts-cjk` 已装且 locale 为 `zh_CN.UTF-8` |
+| `phosh_informational` | ℹ️ | 仅记录 phosh 状态 |
+
+结果工件落在 `test/results/<ts>/`(软链 `test/results/latest` 指向最新):`smoke.json`(schema v1,含 `tier: "qemu"` 层级标注 —— QEMU 绿 ≠ 真机绿)、`serial.log`(串口)、`journal.log`(本次启动 journal)、`pacman-syu.log`、`console.log`。退出码 0 即门禁通过(供 01-03 CI 消费)。构建中间产物与一次性 SSH 私钥在 `test/build/`(已 gitignore,不入库)。
+
+### x86_64 KVM 交互环回(日常 Phosh 开发)
+
+```bash
+test/vm-x86_64.sh --check --image /path/to/image.raw   # 自检:qemu/KVM/固件/镜像
+test/vm-x86_64.sh --image /path/to/image.raw           # 交互启动(KVM,无 KVM 则 WARNING 后 TCG)
+```
+
+virtio 存储/网络 + virtio-vga + usb-tablet,内存 4096M,SSH 转发仅绑 `127.0.0.1:2222`;raw 与 qcow2 均可(EFI 引导走 OVMF,EFI 变量持久化在镜像旁 `<image>.vars.fd`;也可用 `--kernel/--initrd` 直启旁路)。
+
+**镜像获取当前为手动步骤(SKELETON 标注的 stub,Phase 2 由 kupferbootstrap 自动化)**:可现成使用 [postmarketOS generic x86_64 Phosh 镜像](https://images.postmarketos.org/genericx86/)(`unxz` 解压后直接传入),脚本未提供镜像时也会打印该指引并以非零退出。
