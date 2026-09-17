@@ -289,13 +289,65 @@ else
     die "boot timeout — serial log: $SERIAL_LOG"
 fi
 
-# --- Task 1 (tracer): the single thinnest gating assertion ---------------
+# --- Assertion set (SIM-02; gates marked, phosh stays informational) -----
+# 1. multi-user target active (gate — hard gate = boot + SSH + no failed
+#    units; ARCHITECTURE Anti-Pattern 2).
 MULTI_USER=$(vm_ssh "systemctl is-active multi-user.target" 2>/dev/null || true)
 if [ "$MULTI_USER" = active ]; then
     result_assert multi_user pass "systemctl is-active multi-user.target -> active"
 else
     result_assert multi_user fail "systemctl is-active multi-user.target -> '${MULTI_USER:-<no output>}'"
 fi
+
+# 2. No failed units (gate).
+FAILED_UNITS=$(vm_ssh "systemctl --failed --no-legend" 2>/dev/null || true)
+if [ -z "$FAILED_UNITS" ]; then
+    result_assert no_failed_units pass "systemctl --failed --no-legend -> empty"
+else
+    result_assert no_failed_units fail "failed units: ${FAILED_UNITS//$'\n'/; }"
+fi
+
+# 3. CN mirror factory-applied into /etc/pacman.d/mirrorlist (gate).
+CN_MIRROR_MATCH=$(vm_ssh "grep -cE 'mirrors\.tuna\.tsinghua\.edu\.cn|mirrors\.ustc\.edu\.cn' /etc/pacman.d/mirrorlist" 2>/dev/null || true)
+if [ "${CN_MIRROR_MATCH:-0}" -gt 0 ] 2>/dev/null; then
+    result_assert cn_mirror_config pass "/etc/pacman.d/mirrorlist contains ${CN_MIRROR_MATCH} TUNA/USTC server line(s)"
+else
+    result_assert cn_mirror_config fail "/etc/pacman.d/mirrorlist has no TUNA/USTC server (got '${CN_MIRROR_MATCH:-<no output>}')"
+fi
+
+# 4. pacman -Syu through the CN mirror (gate; CN-01 loop proof).
+PACMAN_LOG=$RESULT_DIR/pacman-syu.log
+if VMSSH_TIMEOUT=$((TIMEOUT + 60)) vm_ssh "timeout $TIMEOUT pacman -Syu --noconfirm" \
+        >>"$PACMAN_LOG" 2>&1; then
+    result_assert pacman_sync_via_cn_mirror pass \
+        "pacman -Syu --noconfirm exit 0 (full log: $(basename "$PACMAN_LOG"))"
+else
+    result_assert pacman_sync_via_cn_mirror fail \
+        "pacman -Syu --noconfirm failed — see $(basename "$PACMAN_LOG") and the serial/journal artifacts"
+fi
+
+# 5. CN defaults installed (gate; ROADMAP criterion 4 made explicit — also
+#    the in-loop proof of CN-02).
+if vm_ssh "pacman -Q linuxphoneos-cn noto-fonts-cjk" >/dev/null 2>&1 &&
+    vm_ssh "grep -q 'zh_CN.UTF-8' /etc/locale.conf" >/dev/null 2>&1; then
+    result_assert cn_defaults_installed pass \
+        "pacman -Q linuxphoneos-cn noto-fonts-cjk ok; /etc/locale.conf has zh_CN.UTF-8"
+else
+    CN_PKGS=$(vm_ssh "pacman -Q linuxphoneos-cn noto-fonts-cjk" 2>&1 || true)
+    CN_LOCALE=$(vm_ssh "grep -c 'zh_CN.UTF-8' /etc/locale.conf" 2>/dev/null || true)
+    result_assert cn_defaults_installed fail \
+        "pkgs: ${CN_PKGS//$'\n'/; }; locale.conf zh_CN.UTF-8 count: '${CN_LOCALE:-<none>}'"
+fi
+
+# 6. phosh — informational ONLY (never gates; details must say so).
+PHOSH_STATE=$(vm_ssh "systemctl is-active phosh" 2>/dev/null || true)
+PHOSH_STATUS=fail
+if [ "$PHOSH_STATE" = active ]; then
+    PHOSH_STATUS=pass
+fi
+result_assert phosh_informational "$PHOSH_STATUS" \
+    "informational: systemctl is-active phosh -> '${PHOSH_STATE:-<no output>}' (expected inactive on the minimal headless rootfs; the graphical stack is not a CI gate — ARCHITECTURE Anti-Pattern 2)" \
+    informational
 # --------------------------------------------------------------------------
 
 # Archive the boot journal before shutdown (triage artifact).
