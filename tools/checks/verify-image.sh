@@ -269,10 +269,13 @@ else
 fi
 
 # (b) phosh + archmage-cn really made it into the image.
-if [ -e "$MNT/usr/bin/phosh" ]; then
-    record phosh_present pass "/usr/bin/phosh exists in the image"
+#     phosh >= 0.57 ships the compositor as /usr/lib/phosh/phosh (plus
+#     usr/bin/phosh-session); older releases used /usr/bin/phosh — accept
+#     both so the gate tracks the current Arch extra package layout.
+if [ -e "$MNT/usr/lib/phosh/phosh" ] || [ -e "$MNT/usr/bin/phosh" ]; then
+    record phosh_present pass "/usr/lib/phosh/phosh (or legacy /usr/bin/phosh) exists in the image"
 else
-    record phosh_present fail "/usr/bin/phosh missing from the image"
+    record phosh_present fail "neither /usr/lib/phosh/phosh nor /usr/bin/phosh found in the image"
 fi
 cn_dirs=("$MNT"/var/lib/pacman/local/archmage-cn-*/)
 if [ -d "${cn_dirs[0]}" ]; then
