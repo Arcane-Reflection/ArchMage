@@ -170,21 +170,36 @@ jobs:
               log="build-logs/${name}.log"
               echo "::group::makepkg $d (pass $pass)"
               if sudo -u builder -H env SRCDEST="$SRCDEST" PKGDEST="$PKGDEST" \
-                   bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm" 2>&1 | tee "$log"; then
-                # Prune older versions of this package from PKGDEST so the
-                # staging repo never indexes stale versions after a pkgver
-                # bump; the newest build wins.
-                newest="$(ls -t "$PKGDEST/${name}"-*.pkg.tar.zst 2>/dev/null | head -1 || true)"
-                if [ -n "$newest" ]; then
+                   bash -ec "cd '$GITHUB_WORKSPACE/$d' && makepkg -sf --noconfirm --syncdeps" 2>&1 | tee "$log"; then
+                # Files of THIS package only: <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst
+                # (pkgver/pkgrel/arch cannot contain hyphens, so exactly three
+                # dash-separated fields follow the name). A bare "${name}-*"
+                # glob ALSO matches sibling meta packages (archmage-cn vs
+                # archmage-cn-apn) — reproduced locally: the umbrella's prune
+                # deleted five sibling packages from PKGDEST and the staging
+                # repo indexed only 2 of 7 packages. --syncdeps: without it
+                # makepkg hard-fails on external runtime deps (networkmanager,
+                # dconf, opencc) that the ephemeral container does not preseed.
+                mapfile -t own < <(
                   for f in "$PKGDEST/${name}"-*.pkg.tar.zst; do
-                    if [ "$(readlink -f "$f")" != "$(readlink -f "$newest")" ]; then
-                      rm -f "$f" "$f.sig"
+                    [ -e "$f" ] || continue
+                    if [ "$(basename "$f" | sed -E 's/-[^-]+-[^-]+-[^-]+\.pkg\.tar\.zst$//')" = "$name" ]; then
+                      printf '%s\n' "$f"
                     fi
                   done
-                fi
+                )
+                # Prune older versions (pkgver bumps) among exact-name files
+                # only; the newest build wins.
+                newest="$(ls -t "${own[@]}" 2>/dev/null | head -1 || true)"
+                for f in "${own[@]}"; do
+                  [ -e "$f" ] || continue
+                  if [ -n "$newest" ] && [ "$(readlink -f "$f")" != "$(readlink -f "$newest")" ]; then
+                    rm -f "$f" "$f.sig"
+                  fi
+                done
                 # Install into the container (ephemeral) so later packages
                 # resolve this one as a dependency.
-                mapfile -t built < <(ls "$PKGDEST/${name}"-*.pkg.tar.zst 2>/dev/null || true)
+                mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
                 if [ "${#built[@]}" -gt 0 ]; then
                   pacman -U --noconfirm "${built[@]}"
                 fi
