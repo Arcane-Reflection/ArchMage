@@ -320,6 +320,12 @@ EOF
         --cachedir "$AARCH64_DIR/pacman-cache" \
         --noconfirm --needed -Syu openssh archmage-cn
 
+    # 3b) T-01-10 shipping discipline: the stock ALARM /etc/pacman.conf
+    #     carries a commented '#SigLevel = Optional TrustAll' example — one
+    #     edit away from shipping. assert-shipping-discipline counts
+    #     comments as hits, so factory rootfses never carry the string.
+    sed -i '/TrustAll/d' "$ROOTFS_DIR/etc/pacman.conf"
+
     # 4) Units: enable sshd (gate) + basic QEMU networking (SSH over the
     #    user-mode NAT needs the NIC up). Plan calls for plain symlinks.
     WANTS=$ROOTFS_DIR/etc/systemd/system/multi-user.target.wants
