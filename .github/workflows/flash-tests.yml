@@ -1,0 +1,85 @@
+name: flash-tests
+
+# OP6 flash harness mock test bench + shellcheck gate (02-02, DEVICE-01/02
+# logic face). PITFALLS 3 is enforced in code; this workflow keeps it enforced:
+#
+#   - shellcheck over every flash/**/*.sh (mocks included — they are the
+#     safety-critical test doubles);
+#   - the S1-S10 mock scenario matrix (mock-fastboot/mock-adb): no device
+#     needed, the refuse-to-flash-without-backup gate, the partition
+#     denylist, erase-before-flash ordering and the resume state machine are
+#     proven both ways on every flash/** change;
+#   - rescue.sh --check environment self-check (exit code is the gate; it
+#     does no device probing, no 9008 device needed);
+#   - on failure the per-scenario mock logs are uploaded as an artifact for
+#     triage.
+#
+# Hardening (threat model 02-02): official actions only, pinned by full
+# commit SHA (T-02-SC); no continue-on-error anywhere — a red step IS the
+# gate; shellcheck/jq/usbutils from the distribution only, no curl-bash.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flash/**'
+      - '.github/workflows/flash-tests.yml'
+  pull_request:
+    paths:
+      - 'flash/**'
+      - '.github/workflows/flash-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mock-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install test bench tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          # shellcheck (lint gate), jq (manifest assertions),
+          # usbutils (lsusb, rescue.sh --check requirement); gpg/xz/tar are
+          # preinstalled on ubuntu runners.
+          sudo apt-get install -y --no-install-recommends \
+            shellcheck jq usbutils
+          shellcheck --version | head -2
+          jq --version
+          lsusb --version | head -1
+
+      - name: Shellcheck the flash harness
+        # Non-zero shellcheck exit fails this step => red workflow.
+        run: |
+          set -euo pipefail
+          find flash -name '*.sh' -type f -print0 | xargs -0 -r shellcheck
+
+      - name: Run mock scenario matrix S1-S10 (gate)
+        # Exit code is the gate: backup refusal, partition denylist,
+        # erase-before-flash ordering, resume state machine, 33/DEVICE_REQUIRED.
+        run: |
+          set -euo pipefail
+          bash flash/op6/tests/run-tests.sh
+
+      - name: Rescue environment self-check (gate)
+        # rescue.sh --check: 0 = environment ok (no device probing; a
+        # missing python3/lsusb would exit 1 and fail the workflow).
+        run: |
+          set -euo pipefail
+          bash flash/op6/rescue.sh --check
+
+      - name: Upload mock logs artifact
+        # v7.0.1
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fcf0a
+        with:
+          name: flash-mock-logs
+          path: flash/op6/tests/.results/
+          if-no-files-found: warn
