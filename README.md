@@ -113,7 +113,7 @@ x86_64 开发镜像即 `vm-x86_64.sh` 的官方取像来源(见下节);解压后
 - **短信收发与移动数据**是 Phase 2 的验证目标(真机清单 `test/on-device/op6-checklist.md` 第 2/3 节,标注「仅真机可验」)。
 - **语音通话:尽力而为、不承诺。**VoLTE 依赖上游 sdm845 IMS 逆向进展(postmarketOS pmaports work item [#1878](https://gitlab.postmarketos.org/postmarketOS/pmaports/-/issues/1878));国内 2G/3G 已大规模退网,无 VoLTE 时传统 2G 语音回退在多数城市不可用。真机实测结果按清单第 4 节留档,无论结果如何均不构成承诺。
 
-**APN 预设(CN-03)**:`archmage-cn-apn` 包内置三大运营商连接档案(`/usr/lib/NetworkManager/system-connections/archmage-apn-{cmnet,3gnet,ctnet}.nmconnection`,只读系统连接),`verify-image.sh` 的 `apn_presents_present` 断言保证三档案随镜像。预设一律 **autoconnect=false**(防插错卡自动连错网),按 SIM 运营商手动启用:
+**APN 预设(CN-03)**:`archmage-cn-apn` 包内置三大运营商连接档案(`/usr/lib/NetworkManager/system-connections/archmage-apn-{cmnet,3gnet,ctnet}.nmconnection`,只读系统连接),`verify-image.sh` 的 `apn_presets_present` 断言保证三档案随镜像。预设一律 **autoconnect=false**(防插错卡自动连错网),按 SIM 运营商手动启用:
 
 ```bash
 # 路径一:设置 → Mobile Network 下拉选择对应运营商档案
@@ -122,6 +122,29 @@ nmcli con up "中国移动 (cmnet)"
 ```
 
 **锁屏安全默认(SAFETY-01/02)**:`archmage-phosh-safety` 包把「锁屏通知内容显示」出厂设为关闭并以 dconf 锁死(唯一被锁的键;解锁后的横幅通知不受影响),锁屏紧急呼叫入口为 Phosh 原生、镜像不叠加任何锁屏组件;镜像构建时 `assert-shipping-discipline.sh` 的 `safety_config_present` 与 `no_recommender_components`(`tools/checks/safety-denylist.txt`)断言安全配置在位、无广告/推荐/遥测包。
+
+## 真机验证(OnePlus 6,hardware tier)
+
+**清单位置**:[`test/on-device/op6-checklist.md`](test/on-device/op6-checklist.md)。全清单六节(第 0 节前置留档 + 启动/短信/数据/通话现状/应急锁屏)均为 **tier = hardware,仅真机可验,CI 永不代验**(QEMU 绿 ≠ 真机绿)。
+
+**执行方式**:按 02-02 备份仪式完成 `backups/<序列号>/manifest.json` 在档 → 刷入 nightly 镜像 → 插入已实名 SIM → 逐节执行清单,每项记 pass/fail;第 0 节的 `fastboot getvar all` 留档输出用于确认启动链(ABL vs u-boot,Phase 3 回滚设计输入)。探测设备是否在场:`bash tools/checks/device-tier.sh --probe`(缺 fastboot/adb 与无设备同归退出码 33,stderr 首行 `DEVICE_REQUIRED`)。
+
+**结果 JSON 提交约定**:
+
+- 复制 [`test/on-device/op6-results-template.json`](test/on-device/op6-results-template.json)(schema_version=1;六枚举 check id:`boot-phosh` / `sms-mo` / `sms-mt` / `mobile-data` / `call-status` / `emergency-lockscreen`,每项 `{status: pass|fail|na, notes}`),逐项填写;
+- 提交到 `test/on-device/results/`,文件名 `op6-<序列号>-<YYYYMMDD>.json`;
+- **不含个人数据**:字段仅 serial、image{name,sha256}、checks、performed_by(GitHub 用户名/昵称)、date;`notes` 只写结论与照片文件名,**不得**写入手机号码、短信内容、联系人等任何个人信息;照片本身不入库。
+
+**tier 晋升(manifest:device-pending → device-verified)**:
+
+```bash
+bash tools/checks/device-tier.sh --results test/on-device/results/op6-<序列号>-<日期>.json   # 先校验(缺项/非法值退 1)
+bash tools/checks/device-tier.sh --results <同上> --manifest <nightly Release 的 manifest.json>
+# boot-phosh=pass 时 manifest 原位改写 tier 并附 verified_by/verified_at/checks_summary;
+# 非 pass 拒绝晋升退 2。
+```
+
+**Release 说明更新**:晋升后的 `manifest.json` 重传到 nightly Release(`gh release upload nightly manifest.json --clobber`),并 `gh release edit nightly --notes <更新后的说明>` 注明该镜像的真机验证结论(六项 status 概览 + 结果 JSON 的仓库路径);tier 晋升只有经 `device-tier.sh` 校验的人执结果一条路径,CI 不产生 `device-verified`。
 
 ## 模拟器开发环回
 

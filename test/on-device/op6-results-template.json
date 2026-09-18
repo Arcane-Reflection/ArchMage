@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "serial": "OP6-SERIAL-EXAMPLE(替换为 fastboot getvar serialno)",
+  "image": {
+    "name": "archmage-op6-phosh-20260918-EXAMPLE(替换为实际镜像资产名)",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000(替换为 manifest 的 sha256)"
+  },
+  "checks": [
+    {
+      "id": "boot-phosh",
+      "status": "na",
+      "notes": "待填:第 1 节(DEVICE-03);status 只能是 pass|fail|na"
+    },
+    {
+      "id": "sms-mo",
+      "status": "na",
+      "notes": "待填:第 2 节,本机发出(TELE-01)"
+    },
+    {
+      "id": "sms-mt",
+      "status": "na",
+      "notes": "待填:第 2 节,收到回复(TELE-01)"
+    },
+    {
+      "id": "mobile-data",
+      "status": "na",
+      "notes": "待填:第 3 节(APN 预设启用 + 蜂窝上网/pacman)"
+    },
+    {
+      "id": "call-status",
+      "status": "na",
+      "notes": "待填:第 4 节(现状留档,TELE-02 不承诺)"
+    },
+    {
+      "id": "emergency-lockscreen",
+      "status": "na",
+      "notes": "待填:第 5 节(SAFETY-01,5.1-5.6 逐条)"
+    }
+  ],
+  "performed_by": "example-maintainer(替换为执行人 GitHub 用户名/昵称)",
+  "date": "2026-09-18(替换为执行日期)"
+}
