@@ -23,7 +23,7 @@ license=('MIT')
 depends=('pacman')
 install=archmage-cn-mirror.install
 source=('archmage-mirrorlist')
-sha256sums=('684a69d64b47916b68c54ec4a2b7ab9dff5cc8f98da6774b6f3c8518d92728df')
+sha256sums=('ae1374d2db7617109bebb21d3afc99770bdfef66cc866f03b26c34672b0bab83')
 backup=('etc/pacman.d/archmage/mirrorlist'
         'etc/pacman.d/archmage/mirrorlist-archlinuxcn')
 
