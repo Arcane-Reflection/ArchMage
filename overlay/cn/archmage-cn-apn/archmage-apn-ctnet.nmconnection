@@ -1,0 +1,18 @@
+# ArchMage CN APN preset — 中国电信 (ctnet)。CN-03 / TELE-01。
+# 只读系统连接(/usr/lib/NetworkManager/system-connections/,NM 自动
+# 发现);autoconnect=false:预设不自动连接,防插错卡连错网,按运营商
+# 手动启用(设置 → Mobile Network,或 nmcli con up)。
+[connection]
+id=中国电信 (ctnet)
+uuid=7d0a0b12-5a6c-4a3b-84d0-3c4d5b6a7a47
+type=gsm
+autoconnect=false
+
+[gsm]
+apn=ctnet
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto

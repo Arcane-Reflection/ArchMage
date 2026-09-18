@@ -1,0 +1,65 @@
+# Maintainer: ArchMage contributors
+#
+# CN 三大运营商 APN 预设 for ArchMage (CN-03 / TELE-01):cmnet /
+# 3gnet / ctnet 三个 NetworkManager gsm 连接档案,以只读系统连接随镜像
+# 分发(/usr/lib/NetworkManager/system-connections/,NM 自动发现)。
+#
+# autoconnect=false:预设一律不自动连接 —— 插错卡连错网比手动选一次
+# 运营商代价高(T-02-14),必须人工按 SIM 启用。
+#
+# Overlay-only (STRATEGY §4):纯配置文件,依赖上游 NetworkManager
+# (由 phosh 栈引入,此处不强绑 depends,便于独立安装/审计)。
+
+pkgname=archmage-cn-apn
+pkgver=1
+pkgrel=1
+pkgdesc='CN carrier APN presets for ArchMage: cmnet / 3gnet / ctnet NetworkManager profiles (autoconnect=false)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=()
+source=('archmage-apn-cmnet.nmconnection'
+        'archmage-apn-3gnet.nmconnection'
+        'archmage-apn-ctnet.nmconnection')
+sha256sums=('5c52a367e59a95cb2e40973e05b2bd569a230292a0ed2ee20b6cd53afc314f49'
+            'e8a7ae678d25f0f64942419db4a97bdadd0d718bcd70ac20fcd435e0447bcd8e'
+            '538935a8971bc82463b03c31af60284ac9ab6c4def10cc880f16172f282fa14b')
+
+package() {
+    cd "$srcdir"
+    # 600 root:root — NetworkManager 的连接档案权限要求(明文承载 APN
+    # 配置,不可世界可读);只读系统连接目录由 NM 自动发现。
+    install -Dm600 archmage-apn-cmnet.nmconnection \
+        "$pkgdir/usr/lib/NetworkManager/system-connections/archmage-apn-cmnet.nmconnection"
+    install -Dm600 archmage-apn-3gnet.nmconnection \
+        "$pkgdir/usr/lib/NetworkManager/system-connections/archmage-apn-3gnet.nmconnection"
+    install -Dm600 archmage-apn-ctnet.nmconnection \
+        "$pkgdir/usr/lib/NetworkManager/system-connections/archmage-apn-ctnet.nmconnection"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage CN APN 预设(archmage-cn-apn)
+======================================
+
+内置三大运营商的移动数据接入点(NetworkManager 连接档案,只读系统
+连接,NM 自动发现):
+
+| 档案                                | 运营商   | APN    |
+| ----------------------------------- | -------- | ------ |
+| archmage-apn-cmnet.nmconnection     | 中国移动 | cmnet  |
+| archmage-apn-3gnet.nmconnection     | 中国联通 | 3gnet  |
+| archmage-apn-ctnet.nmconnection     | 中国电信 | ctnet  |
+
+全部 autoconnect=false:预设不会自动连接,防止插错卡自动连到错误
+运营商网络。请按 SIM 卡实际运营商手动启用:
+
+- 设置 → Mobile Network(Phosh):在下拉列表选择对应运营商档案;
+  或
+- 命令行:`nmcli con up "中国移动 (cmnet)"`(联通/电信同理,替换
+  档案名即可)。
+
+启用后 IPv4/IPv6 均为自动(DHCP/SLAAC),鉴权与 APN 由档案给定;
+如需改 APN(如物联卡专用接入点),复制一份到 /etc/NetworkManager/
+system-connections/ 后再编辑 —— /usr/lib 下的档案随包更新会被覆盖。
+EOF
+}

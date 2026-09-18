@@ -59,13 +59,14 @@ username = "archmage"
 # Rootfs headroom for the CN layer (noto-fonts-cjk et al.) installed in
 # bootstrap.sh stage 2.
 size_extra_mb = 2000
-# CN defaults umbrella + phosh safety overlay from the ArchMage staging repo
-# (CI artifact of packages.yml). NOTE: they are NOT installed by the kbs
-# build itself — see the build profile below and bootstrap.sh for the
-# two-stage design (02-03: archmage-phosh-safety rides the same stage-2
-# transaction; its presence in the image is asserted by the discipline
-# detector's safety_config_present class).
-pkgs_include = ["archmage-cn", "archmage-phosh-safety"]
+# CN defaults umbrella + phosh safety overlay + CN APN presets from the
+# ArchMage staging repo (CI artifact of packages.yml). NOTE: they are NOT
+# installed by the kbs build itself — see the build profile below and
+# bootstrap.sh for the two-stage design (02-03: archmage-phosh-safety and
+# archmage-cn-apn ride the same stage-2 transaction; their presence in the
+# image is asserted by verify-image.sh — safety_config_present class of the
+# discipline detector, apn_presets_present gate).
+pkgs_include = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn"]
 
 [profiles.archmage-op6-phosh-build]
 # Stage-1 build profile used by `kbs image build` (bootstrap.sh stage 1).
@@ -85,4 +86,4 @@ pkgs_include = ["archmage-cn", "archmage-phosh-safety"]
 # (kbs config/profile.py resolve_profile); bootstrap.sh stage 2 installs
 # them with full Required discipline instead.
 parent = "archmage-op6-phosh"
-pkgs_exclude = ["archmage-cn", "archmage-phosh-safety"]
+pkgs_exclude = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn"]

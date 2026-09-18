@@ -199,7 +199,7 @@ assert 'archmage-cn' in build_prof.get('pkgs_exclude', []), 'build profile must 
 # 02-03: every staging-repo overlay in pkgs_include must ride the same
 # two-stage design (stage-1 exclude + stage-2 verified install), otherwise
 # the keyring-less kbs transaction would fail or the package never lands.
-OVERLAYS = ('archmage-phosh-safety',)
+OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn')
 for overlay in OVERLAYS:
     assert overlay in prof['pkgs_include'], f'pkgs_include lost {overlay}'
     assert overlay in build_prof.get('pkgs_exclude', []), \
@@ -467,13 +467,13 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
 SigLevel = Required
 Server = $stage2_server
 EOF
-    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety (SigLevel Required, signed DB verified)"
+    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn (SigLevel Required, signed DB verified)"
     mkdir -p "$KBS_CACHE/pacman-image-cache"
     # Keep this list identical to the canonical profile's pkgs_include in
     # archmage.toml (bootstrap.sh --check asserts the two stay in sync).
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
-        --noconfirm --needed -Sy archmage-cn archmage-phosh-safety
+        --noconfirm --needed -Sy archmage-cn archmage-phosh-safety archmage-cn-apn
 
     # 7) Stage 3 — harden the shipped /etc/pacman.conf.
     archmage_info "stage 3: hardening shipped /etc/pacman.conf"

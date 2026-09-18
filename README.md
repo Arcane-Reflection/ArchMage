@@ -12,8 +12,8 @@
 
 | 目录 | 用途 |
 | --- | --- |
-| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录):mirror / net / locale / fonts-meta / 伞包 `archmage-cn` |
-| `overlay/phosh/` | Phosh 风味包(Phase 2 填充) |
+| `overlay/cn/` | CN 出厂默认元包(pacman 仓库组 `cn`,一包一目录):mirror / net / locale / fonts-meta / APN 预设 `archmage-cn-apn` / 伞包 `archmage-cn` |
+| `overlay/phosh/` | Phosh 风味包:`archmage-phosh-safety`(锁屏安全默认,dconf 锁死通知内容不上锁屏) |
 | `overlay/device/` | 设备 overlay(Phase 2,OnePlus 6) |
 | `overlay/qemu/` | QEMU 虚拟设备包(Phase 1,01-02) |
 | `bootstrap/` | kupferbootstrap 配置与镜像构建驱动(02-01;overlay-only,不含 fork) |
@@ -105,6 +105,23 @@ xz -d archmage-qemu-x86_64-*.img.xz
 ```
 
 x86_64 开发镜像即 `vm-x86_64.sh` 的官方取像来源(见下节);解压后 `--image` 直接可传。
+
+## 电话栈现状(TELE-01/02)
+
+**验证目标 vs 不承诺项**:
+
+- **短信收发与移动数据**是 Phase 2 的验证目标(真机清单 `test/on-device/op6-checklist.md` 第 2/3 节,标注「仅真机可验」)。
+- **语音通话:尽力而为、不承诺。**VoLTE 依赖上游 sdm845 IMS 逆向进展(postmarketOS pmaports work item [#1878](https://gitlab.postmarketos.org/postmarketOS/pmaports/-/issues/1878));国内 2G/3G 已大规模退网,无 VoLTE 时传统 2G 语音回退在多数城市不可用。真机实测结果按清单第 4 节留档,无论结果如何均不构成承诺。
+
+**APN 预设(CN-03)**:`archmage-cn-apn` 包内置三大运营商连接档案(`/usr/lib/NetworkManager/system-connections/archmage-apn-{cmnet,3gnet,ctnet}.nmconnection`,只读系统连接),`verify-image.sh` 的 `apn_presents_present` 断言保证三档案随镜像。预设一律 **autoconnect=false**(防插错卡自动连错网),按 SIM 运营商手动启用:
+
+```bash
+# 路径一:设置 → Mobile Network 下拉选择对应运营商档案
+# 路径二:命令行(以移动 cmnet 为例)
+nmcli con up "中国移动 (cmnet)"
+```
+
+**锁屏安全默认(SAFETY-01/02)**:`archmage-phosh-safety` 包把「锁屏通知内容显示」出厂设为关闭并以 dconf 锁死(唯一被锁的键;解锁后的横幅通知不受影响),锁屏紧急呼叫入口为 Phosh 原生、镜像不叠加任何锁屏组件;镜像构建时 `assert-shipping-discipline.sh` 的 `safety_config_present` 与 `no_recommender_components`(`tools/checks/safety-denylist.txt`)断言安全配置在位、无广告/推荐/遥测包。
 
 ## 模拟器开发环回
 

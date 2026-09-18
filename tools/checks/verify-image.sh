@@ -24,6 +24,11 @@
 #                        line is present in the image's effective pacman
 #                        configuration (existence only — the SigLevel policy
 #                        is owned by the discipline detector)
+#   apn_presets_present  the three CN carrier APN profiles (archmage-apn-
+#                        {cmnet,3gnet,ctnet}.nmconnection, package
+#                        archmage-cn-apn) exist under the mounted rootfs's
+#                        /usr/lib/NetworkManager/system-connections/
+#                        (02-03, CN-03/TELE-01 machine face; both kinds)
 #
 # Usage:
 #   tools/checks/verify-image.sh --image-kind op6 \
@@ -52,6 +57,10 @@ Usage:
                                [--rootfs-img PATH] [--skip-mount] [--out FILE]
   tools/checks/verify-image.sh --image-kind qemu-x86_64 --rootfs-img PATH
                                [--skip-mount] [--out FILE]
+
+Full-mode mounted-rootfs assertions (both kinds): android_boot_magic (op6
+only), image_sized, shipping_discipline, phosh_present,
+archmage_cn_in_image, archmage_repo_live, apn_presets_present.
 
 Options:
   --image-kind KIND   op6 | qemu-x86_64.
@@ -293,6 +302,19 @@ if [ "${archmage_servers:-0}" -ge 1 ]; then
     record archmage_repo_live pass "[archmage] section declares ${archmage_servers} Server line(s) in the image pacman config"
 else
     record archmage_repo_live fail "no [archmage] section with a Server line in the image pacman config"
+fi
+
+# (d) CN carrier APN presets really made it into the image (02-03).
+NM_CONNS=$MNT/usr/lib/NetworkManager/system-connections
+apn_missing=""
+for apn in cmnet 3gnet ctnet; do
+    [ -f "$NM_CONNS/archmage-apn-$apn.nmconnection" ] || \
+        apn_missing="${apn_missing:+$apn_missing; }archmage-apn-$apn.nmconnection"
+done
+if [ -z "$apn_missing" ]; then
+    record apn_presets_present pass "all three CN APN profiles present in /usr/lib/NetworkManager/system-connections/"
+else
+    record apn_presets_present fail "APN preset file(s) missing from the image rootfs: $apn_missing"
 fi
 
 # --- verdict ----------------------------------------------------------------
