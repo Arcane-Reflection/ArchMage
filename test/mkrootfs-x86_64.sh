@@ -278,11 +278,17 @@ EOF
     mkdir -p "$ROOTFS_DIR"
     archmage_info "pacstrapping base + linux + phosh stack + archmage-cn into $ROOTFS_DIR"
     mkdir -p "$X86_64_DIR/pacman-cache"
+    # archmage-phosh-safety + archmage-cn-apn: the same stage-2 set as
+    # bootstrap/bootstrap.sh (02-03). verify-image.sh asserts
+    # safety_config_present (phosh ⇒ safety layer) and apn_presets_present on
+    # this image kind — without these two the structural gate legitimately
+    # fails, so the dev image carries the full factory overlay set.
     # arch-install-scripts only parses short options; without -i pacstrap
     # passes --noconfirm to pacman itself.
     pacstrap -C "$X86_64_DIR/pacman-install.conf" \
         "$ROOTFS_DIR" \
-        base linux linux-firmware openssh "${PHOSH_PKGS[@]}" archmage-cn
+        base linux linux-firmware openssh "${PHOSH_PKGS[@]}" \
+        archmage-cn archmage-phosh-safety archmage-cn-apn
 
     # 4) Units: sshd (gate) + QEMU networking (hostfwd SSH needs the NIC up).
     WANTS=$ROOTFS_DIR/etc/systemd/system/multi-user.target.wants

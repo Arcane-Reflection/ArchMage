@@ -25,7 +25,8 @@
 # build container by the host phase.
 #
 # Signature discipline (PITFALLS 2): the staging repo is consumed with
-# SigLevel Required DatabaseOnly; its key (staging-key.asc) is imported
+# SigLevel Required (signed packages + signed database both verified); its key
+# (staging-key.asc) is imported
 # into the ROOTFS pacman keyring and locally signed BEFORE the install
 # transaction, otherwise pacman rejects the signed database outright.
 
@@ -239,7 +240,7 @@ container_main() {
 
     # 2) Target-root pacman keyring: init + ALARM keyring, then import and
     #    locally sign the staging key — mandatory before a
-    #    SigLevel Required DatabaseOnly transaction against cn.db.tar.zst.
+    #    SigLevel Required transaction against cn.db.tar.zst.
     GPGDIR=$ROOTFS_DIR/etc/pacman.d/gnupg
     mkdir -p "$GPGDIR"
     archmage_info "initialising target keyring ($GPGDIR)"
@@ -283,8 +284,12 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
 
 [staging]
-# ArchMage CI staging repo (01-01 artifact contract).
-SigLevel = Required DatabaseOnly
+# ArchMage CI staging repo (01-01 artifact contract). Signed packages AND a
+# signed database (repo-add -s) — plain Required verifies both; "DatabaseOnly"
+# is not a valid pacman SigLevel token (reproduced: pacman 7 rejects the config
+# with "invalid value for 'SigLevel'"). Policy parity with the discipline
+# detector: ArchMage own repos are Required WITHOUT DatabaseOptional.
+SigLevel = Required
 Server = file:///work/test/build/staging-repo
 EOF
     archmage_info "installing openssh + archmage-cn into the rootfs (pacman -r, this also runs the CN factory scriptlets)"
