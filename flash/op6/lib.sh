@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # lib.sh — ArchMage OP6 刷机 harness 共享库(DEVICE-01/DEVICE-02 安全核心)。
 #
 # 被 flash/op6/*.sh source。调用方自带 shell 选项(它们以

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # result.sh — structured smoke-result contract (SIM-03).
 #
 # Sourced by test/smoke-aarch64.sh AFTER lib/common.sh. Emits

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # common.sh — shared helpers for the ArchMage QEMU test harness.
 #
 # Sourced by test/*.sh. Callers own shell options (they run with
