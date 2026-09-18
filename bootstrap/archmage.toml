@@ -1,0 +1,83 @@
+# archmage.toml — kupferbootstrap (kbs) configuration for the ArchMage OP6
+# image profile.
+#
+# Field names follow the upstream kbs config scheme exactly (verified against
+# kupferbootstrap v0.3.0-rc0 config/state.py CONFIG_DEFAULTS_DICT and
+# config/scheme.py; load-bearing behavior re-checked at the pinned tag). The
+# file is PARTIAL on purpose: kbs merges it over its built-in defaults
+# (config/state.py merge_configs), so only the sections we override are
+# present. Do not invent keys — unknown keys are dropped with a warning.
+#
+# This file is consumed by bootstrap/bootstrap.sh, which stages it as the
+# effective kbs config (via the global `-C/--config` override flag, verified
+# in kbs main.py) inside an arch container. Paths are container paths: the
+# repo is always mounted at /work (see bootstrap.sh host phase).
+
+[wrapper]
+# 'none' (upstream constants.py WRAPPER_TYPES = ['none', 'docker']): kbs runs
+# UNWRAPPED — no docker-in-docker, no kbs docker wrapper. kbs itself executes
+# as root inside the arch build container that bootstrap.sh provides; this is
+# what makes the pipeline independent of the kbs wrapper image while keeping
+# the committed config truthful (kbs really does run unwrapped).
+type = "none"
+
+[pkgbuilds]
+# Upstream kupfer pkgbuilds (device/flavour/boot packages), dev branch —
+# the branch the pinned kbs version tracks (kbs-version.txt).
+git_repo = "https://gitlab.com/kupfer/packages/pkgbuilds.git"
+git_branch = "dev"
+
+[paths]
+# Pin every kbs working directory into the repo checkout so build outputs
+# (images/, pkgbuilds/) are visible on the host through the /work mount and
+# survive container exit. Sub-paths not listed here default to
+# %cache_dir%/<name> per upstream defaults.
+cache_dir = "/work/bootstrap/.work/kupfer"
+chroots = "/work/bootstrap/.work/kupfer/chroots"
+pacman = "/work/bootstrap/.work/kupfer/pacman"
+packages = "/work/bootstrap/.work/kupfer/packages"
+pkgbuilds = "/work/bootstrap/.work/kupfer/pkgbuilds"
+jumpdrive = "/work/bootstrap/.work/kupfer/jumpdrive"
+images = "/work/bootstrap/.work/kupfer/images"
+ccache = "/work/bootstrap/.work/kupfer/ccache"
+rust = "/work/bootstrap/.work/kupfer/rust"
+
+[profiles]
+# `current` is a STRING key under [profiles] selecting the default profile
+# (upstream config/scheme.py ProfilesSection.current).
+current = "archmage-op6-phosh"
+
+[profiles.archmage-op6-phosh]
+# The canonical ArchMage OP6 profile: OnePlus 6 (kupfer official example
+# device, package device-sdm845-oneplus-enchilada exists in its device repo)
+# with the Phosh flavour and the CN defaults layered in via our staging repo.
+parent = ""
+device = "sdm845-oneplus-enchilada"
+flavour = "phosh"
+hostname = "archmage"
+username = "archmage"
+# Rootfs headroom for the CN layer (noto-fonts-cjk et al.) installed in
+# bootstrap.sh stage 2.
+size_extra_mb = 2000
+# CN defaults umbrella from the ArchMage staging repo (CI artifact of
+# packages.yml). NOTE: it is NOT installed by the kbs build itself — see the
+# build profile below and bootstrap.sh for the two-stage design.
+pkgs_include = ["archmage-cn"]
+
+[profiles.archmage-op6-phosh-build]
+# Stage-1 build profile used by `kbs image build` (bootstrap.sh stage 1).
+#
+# Why a separate profile: kbs's image transaction runs `pacstrap -G` into a
+# fresh rootfs that has NO pacman keyring, with every repo in the build-time
+# pacman.conf at the upstream SigLevel Never (kupfer prebuilts are unsigned;
+# verified against kbs chroot/base.py + distro/distro.py at the pinned
+# tag). A
+# SigLevel Required repo (ours) cannot pass a keyring-less transaction, so
+# the CN layer is installed AFTER the kbs build by bootstrap.sh stage 2, in a
+# dedicated pacman transaction that imports and locally signs the staging
+# key first (full Required discipline, test/mkrootfs-aarch64.sh pattern).
+#
+# pkgs_exclude removes archmage-cn from the parent's pkgs_include during
+# profile resolution (kbs config/profile.py resolve_profile).
+parent = "archmage-op6-phosh"
+pkgs_exclude = ["archmage-cn"]

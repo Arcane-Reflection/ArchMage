@@ -1,0 +1,143 @@
+name: image
+
+# Daily image pipeline (02-01, BUILD-02).
+#
+#   op6-image (ubuntu-24.04-arm, native aarch64):
+#     packages.yml staging-repo artifact -> bootstrap/bootstrap.sh ->
+#     kupferbootstrap OP6 image (profile archmage-op6-phosh) + the CN layer
+#     installed with full signature discipline (see bootstrap/bootstrap.sh
+#     for the two-stage design). Artifacts: Android boot image (aboot),
+#     rootfs partition image, manifest.json (tier=device-pending).
+#
+# Hardening (threat model 02-01):
+#   - every action is official (actions/*) and pinned by full commit SHA
+#     (T-01-03 / T-02-SC);
+#   - the staging artifact is downloaded with the official gh CLI + this
+#     workflow's own github.token, explicitly repo-scoped — no third-party
+#     artifact action (T-01-11);
+#   - kbs is installed from the pinned upstream tag recorded in
+#     bootstrap/kbs-version.txt (T-02-03 / T-02-SC: no vendored kbs source,
+#     no curl|bash);
+#   - timeout-minutes bounds the build (T-01-13 budget); a timeout is a
+#     failure, and no gate step carries continue-on-error.
+
+on:
+  schedule:
+    # Daily at 03:17 UTC (staggered against qemu-smoke 02:41 and gap-report).
+    - cron: "17 03 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/image.yml'
+
+permissions:
+  contents: read
+  # gh run list / gh run download read the packages.yml staging-repo artifact.
+  actions: read
+
+concurrency:
+  group: image-op6
+  cancel-in-progress: false
+
+jobs:
+  op6-image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      # Scope any gh call to this repository.
+      ARCHMAGE_GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install python3/pip
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3 python3-pip
+          python3 --version
+
+      - name: Install kupferbootstrap toolchain (pinned)
+        # bootstrap.sh --install-only: container prep + kbs install from the
+        # bootstrap/kbs-version.txt pin + config staging/validation. Fails
+        # fast on toolchain/pin problems before the artifact is consumed.
+        run: |
+          set -euo pipefail
+          bash bootstrap/bootstrap.sh --staging-dir "$RUNNER_TEMP/staging-repo" --install-only
+
+      - name: Resolve source packages.yml run
+        id: srcrun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                      --branch main --status success --limit 1 \
+                      --json databaseId --jq '.[0].databaseId')"
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful packages.yml run on main to build images from yet"
+            exit 1
+          fi
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          {
+            echo "- staging-repo from packages.yml run: ${run_id}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download staging-repo artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/staging-repo"
+          # T-01-11: official gh CLI + this workflow's own token, explicitly
+          # scoped to this repository; no third-party download action.
+          gh run download "${{ steps.srcrun.outputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name staging-repo \
+            --dir "$RUNNER_TEMP/staging-repo"
+          ls -la "$RUNNER_TEMP/staging-repo"
+
+      - name: Build OP6 image (kbs + CN layer)
+        # bootstrap.sh builds inside a privileged menci/archlinuxarm:base
+        # container (native aarch64, kbs unwrapped — see bootstrap/README.md).
+        run: |
+          set -euo pipefail
+          bash bootstrap/bootstrap.sh --staging-dir "$RUNNER_TEMP/staging-repo"
+
+      - name: Collect image artifacts
+        run: |
+          set -euo pipefail
+          images="bootstrap/.work/kupfer/images"
+          out="op6-image-out"
+          mkdir -p "$out"
+          cp "$images/sdm845-oneplus-enchilada-aboot.img" "$out/archmage-op6-boot.img"
+          cp "$images/sdm845-oneplus-enchilada-phosh-root.img" "$out/archmage-op6-rootfs.img"
+          # manifest.json — per-image contract consumed by 02-02/02-03:
+          # tier labels the verification level reached (PITFALLS 4): the OP6
+          # image is structure-verified only; real-device boot is 02-02/03.
+          build_date="$(date -u +%Y%m%d)"
+          sha256="$(sha256sum "$out/archmage-op6-rootfs.img" | cut -d' ' -f1)"
+          jq -n \
+            --arg name "archmage-op6-phosh" \
+            --arg arch "aarch64" \
+            --arg device "sdm845-oneplus-enchilada" \
+            --arg flavour "phosh" \
+            --arg tier "device-pending" \
+            --arg build_date "$build_date" \
+            --arg sha256 "$sha256" \
+            '{name: $name, arch: $arch, device: $device, flavour: $flavour,
+              tier: $tier, build_date: $build_date, sha256: $sha256}' \
+            > "$out/manifest.json"
+          cat "$out/manifest.json"
+          ls -la "$out"
+
+      - name: Upload op6-image artifact
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: op6-image
+          path: op6-image-out/
+          if-no-files-found: error

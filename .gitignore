@@ -17,3 +17,6 @@ test/results/
 
 # discipline checker default output when run against the rootfs-bad fixture
 test/fixtures/discipline.json
+
+# bootstrap/ kupferbootstrap working tree (images, pkgbuilds, caches)
+bootstrap/.work/

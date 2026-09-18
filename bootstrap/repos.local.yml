@@ -1,0 +1,87 @@
+# repos.local.yml — ArchMage user-level kbs repository configuration.
+#
+# SEMANTICS (verified against kupferbootstrap v0.3.0-rc0 distro/repo_config.py
+# get_repo_config; identical at v0.2.0): when <pkgbuilds>/repos.local.yml
+# exists it is loaded ENTIRELY and REPLACES the upstream
+# <pkgbuilds>/repos.yml — this is not an incremental merge. This file must
+# therefore be a COMPLETE copy of the upstream repos.yml of the pkgbuilds
+# branch pinned via kbs-version.txt (dev) plus our injected `archmage`
+# section. bootstrap.sh drift-checks the repos/base_distros key sets against
+# the checkout's repos.yml after `kbs packages init` and fails loudly when
+# upstream evolves.
+#
+# The kupfer repo sections keep their upstream `SigLevel: Never` verbatim:
+# that is kupfer's policy for their unsigned prebuilt repositories, not a
+# weakening introduced by ArchMage. Our own `archmage` section enforces the
+# strictest level: package signatures Required (and, because no weaker
+# database token is set, the signed database is verified as well).
+#
+# Upstream snapshot: pkgbuilds dev branch repos.yml (2026-09-18), carrying
+#   kbs_min_version v0.2.0-rc4 — satisfied by the pinned kbs v0.2.0.
+
+kbs_ci_version: "v0.2.0-rc4"
+kbs_min_version: "v0.2.0-rc4"
+remote_url: https://gitlab.com/kupfer/packages/prebuilts/-/raw/%kupfer_branch%/$arch/$repo
+repos:
+  kupfer_local:
+    local_only: true
+    options:
+      SigLevel: Never
+  boot:
+    options:
+      SigLevel: Never
+  cross:
+    options:
+      SigLevel: Never
+  device:
+    options:
+      SigLevel: Never
+  firmware:
+    options:
+      SigLevel: Never
+  linux:
+    options:
+      SigLevel: Never
+  main:
+    options:
+      SigLevel: Never
+  phosh:
+    options:
+      SigLevel: Never
+  plasma_mobile:
+    options:
+      SigLevel: Never
+  gnome_mobile:
+    options:
+      SigLevel: Never
+  # ArchMage staging repo (packages.yml CI artifact). remote_url is a flat
+  # file:// URL: kbs only substitutes $arch/$repo tokens when present
+  # (distro/repo.py resolve_url), so a token-less URL resolves literally —
+  # the staging directory stays FLAT and bootstrap.sh provides the
+  # `archmage.db` name pacman requests via symlinks to cn.db.tar.zst.
+  # /staging is the documented mount point bootstrap.sh binds the downloaded
+  # artifact to.
+  archmage:
+    remote_url: file:///staging
+    options:
+      SigLevel: Required
+base_distros:
+  x86_64:
+    remote_url: https://geo.mirror.pkgbuild.com/$repo/os/$arch
+    repos:
+      core: {}
+      extra: {}
+  aarch64:
+    remote_url: http://mirror.archlinuxarm.org/$arch/$repo
+    repos:
+      core: {}
+      extra: {}
+      alarm: {}
+      aur: {}
+  armv7h:
+    remote_url: http://mirror.archlinuxarm.org/$arch/$repo
+    repos:
+      core: {}
+      extra: {}
+      alarm: {}
+      aur: {}
