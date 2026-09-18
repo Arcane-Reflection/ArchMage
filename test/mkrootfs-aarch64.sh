@@ -230,6 +230,17 @@ container_main() {
     # Speed the container's own package installs through TUNA as well.
     printf 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo\n' \
         > /etc/pacman.d/mirrorlist
+    # pacman 7's landlock/seccomp sandbox is unavailable under qemu-user
+    # emulation (live failure: "Landlock is not supported by the kernel" ->
+    # "switching to sandbox user 'alpm' failed" aborts every transaction).
+    # This container is a throwaway root, so its OWN /etc/pacman.conf
+    # disables the sandbox for its own -Sy below — same scope rule as
+    # pacman-install.conf (01-02 decision): throwaway roots only, never a
+    # shipped config. (The 01-02 variant only covered the pacman -r
+    # transaction; the container's own first -Sy died before reaching it.)
+    if ! grep -q '^DisableSandbox' /etc/pacman.conf; then
+        sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
+    fi
     pacman -Sy --noconfirm --needed e2fsprogs archlinuxarm-keyring
 
     # 1) Fresh unpack of the verified tarball.
