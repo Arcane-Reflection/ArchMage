@@ -184,6 +184,12 @@ prepare_staging() {
             --name staging-repo --dir "$STAGING_DIR"
     fi
     staging_valid || die "staging artifact incomplete in $STAGING_DIR"
+    # pacman>=6 requests the extensionless <repo>.db first; the repo section
+    # below is named [staging] while the artifact DB is cn.db.tar.zst —
+    # provide both names (flat layout; same fix mkrootfs-x86_64.sh applies
+    # for its [archmage] section).
+    ln -sfn cn.db.tar.zst "$STAGING_DIR/staging.db"
+    [ -s "$STAGING_DIR/cn.db.tar.zst.sig" ] && ln -sfn cn.db.tar.zst.sig "$STAGING_DIR/staging.db.sig" || true
     if grep -q '^EPHEMERAL: yes' "$STAGING_DIR/FINGERPRINT.txt" 2>/dev/null; then
         archmage_warn "staging artifact was signed with an EPHEMERAL run key (GPG_PRIVATE_KEY secret not configured). It will still be consumed for this throwaway local smoke VM, but it proves nothing about provenance — configure the persistent staging key for real verification."
     fi
