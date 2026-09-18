@@ -9,7 +9,7 @@
 
 pkgname=archmage-cn-locale
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='CN locale defaults for ArchMage: zh_CN.UTF-8 locale, Asia/Shanghai factory timezone'
 arch=(any)
 url='https://github.com/uMaj35ty/ArchMage'

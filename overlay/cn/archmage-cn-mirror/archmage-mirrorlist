@@ -14,10 +14,14 @@
 #
 # ---- BEGIN archlinuxarm ----
 # Arch Linux ARM mirrors (core / extra / community) — CN defaults.
+# NOTE: TUNA/USTC serve the ALARM tree as archlinuxarm/<arch>/<repo>
+# ($arch BEFORE $repo; verified live: .../archlinuxarm/aarch64/extra -> 200,
+# .../archlinuxarm/extra/aarch64 -> 404). The official os.archlinuxarm.org
+# host uses the opposite order — do not blindly copy these lines elsewhere.
 # TUNA
-Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$repo/$arch
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
 # USTC
-Server = https://mirrors.ustc.edu.cn/archlinuxarm/$repo/$arch
+Server = https://mirrors.ustc.edu.cn/archlinuxarm/$arch/$repo
 # ---- END archlinuxarm ----
 #
 # ---- BEGIN archlinuxcn ----

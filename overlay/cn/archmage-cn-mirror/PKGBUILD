@@ -15,7 +15,7 @@
 
 pkgname=archmage-cn-mirror
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='CN pacman mirror defaults for ArchMage: TUNA/USTC mirrorlists for Arch Linux ARM and archlinuxcn'
 arch=(any)
 url='https://github.com/uMaj35ty/ArchMage'

@@ -40,6 +40,27 @@ _archmage_locale_configure() {
         # Marker present: an admin has chosen a timezone since; never touch.
     fi
 
+    # --- locale.conf ---------------------------------------------------------
+    # The packaged default ships under backup=(). When the rootfs already
+    # carries an UNOWNED /etc/locale.conf (current ALARM tarballs ship
+    # LANG=C), pacman installs ours as locale.conf.pacnew instead of
+    # replacing it — factory-apply the packaged default ONCE on first
+    # install (same pristine-upstream discipline as the timezone section
+    # and archmage-cn-mirror), keeping the prior file for reference.
+    local lc=/etc/locale.conf
+    local lc_marker=/etc/archmage/.locale-conf-factory-applied
+    if [ -f "$lc" ] && ! grep -q 'zh_CN.UTF-8' "$lc" && [ ! -e "$lc_marker" ]; then
+        mkdir -p "$(dirname "$lc_marker")"
+        cp -a "$lc" /etc/archmage/locale.conf.prior 2>/dev/null || true
+        if [ -f "$lc.pacnew" ]; then
+            cat "$lc.pacnew" > "$lc" && rm -f "$lc.pacnew"
+        else
+            printf 'LANG=zh_CN.UTF-8\n' > "$lc"
+        fi
+        touch "$lc_marker"
+    fi
+    # Marker present or already zh_CN: an admin choice — never touch again.
+
     # --- locale.gen (owned by glibc; append-only, idempotent) ---------------
     if [ -f /etc/locale.gen ] && ! grep -qE '^zh_CN\.UTF-8[[:space:]]+UTF-8$' /etc/locale.gen; then
         printf '\n# added by archmage-cn-locale (CN-02)\nzh_CN.UTF-8 UTF-8\n' >> /etc/locale.gen
