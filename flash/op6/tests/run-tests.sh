@@ -97,15 +97,17 @@ sign_detach() {
         --passphrase '' --detach-sign "$1" >/dev/null 2>&1
 }
 
-# mk_images_dir <dir> [with_vbmeta] — 现场签出的合法三件套(02-01 契约布局)
+# mk_images_dir <dir> [with_vbmeta] [rootfs_bytes] — 现场签出的合法三件套
+# (02-01 契约布局;rootfs_bytes 供 S8 传输上限场景放大镜像)
 mk_images_dir() {
-    local d=$1 withvb=${2:-no} kind f
+    local d=$1 withvb=${2:-no} rootfs_bytes=${3:-65536} kind f
     mkdir -p "$d"
-    for kind in boot rootfs; do
-        head -c 65536 /dev/urandom >"$d/$kind.img"
-        xz -0 -c "$d/$kind.img" >"$d/$kind.img.xz"
-        rm -f "$d/$kind.img"
-    done
+    head -c 65536 /dev/urandom >"$d/boot.img"
+    xz -0 -c "$d/boot.img" >"$d/boot.img.xz"
+    rm -f "$d/boot.img"
+    head -c "$rootfs_bytes" /dev/urandom >"$d/rootfs.img"
+    xz -0 -c "$d/rootfs.img" >"$d/rootfs.img.xz"
+    rm -f "$d/rootfs.img"
     if [ "$withvb" = yes ]; then
         head -c 4096 /dev/urandom >"$d/vbmeta.img"
         xz -0 -c "$d/vbmeta.img" >"$d/vbmeta.img.xz"
@@ -239,7 +241,7 @@ s3() {
 
 # ================================================================ S4
 s4() {
-    scenario "S4 00 状态 + 有效备份 + 合法镜像 → 过门进入层调度(缺失层上报非零)"
+    scenario "S4 00 状态 + 有效备份 + 合法镜像 → 过门进入层调度(Task1 桩期:缺失层上报 6;层在位:全链完成)"
     local tmp=$RESULTS/S4
     mkdir -p "$tmp"
     export MOCK_LOG="$tmp/mock.log" MOCK_SERIAL=SN4
@@ -247,12 +249,19 @@ s4() {
     make_backup "$tmp" SN4
     prime_00_state "$tmp/bk" SN4
     run_cmd "$tmp" bash "$OP6_DIR/flash-all.sh" --backup-dir "$tmp/bk" --images-dir "$IMAGES" --yes
-    assert_rc "S4 flash-all 上报缺失层(非零)" 6 "$RUN_RC"
-    assert_contains "S4 stderr 报层未实现" "$tmp/last.err" "层未实现"
-    assert_contains "S4 stderr 点名 20-flash-boot" "$tmp/last.err" "20-flash-boot"
     assert_contains "S4 stderr 备份门已通过" "$tmp/last.err" "备份校验通过"
     assert_contains "S4 stderr 镜像校验已通过" "$tmp/last.err" "镜像校验通过"
-    assert_eq "S4 零次 fastboot flash/erase 调用(层未实现,未触设备写)" "0" "$(mock_log_count ' (flash|erase) ')"
+    if [ -f "$OP6_DIR/20-flash-boot.sh" ]; then
+        # Task 2 之后:层在位,过门即全链完成(S9 的正例在此层叠复证)
+        assert_rc "S4 flash-all 过门后全链成功" 0 "$RUN_RC"
+        assert_contains "S4 状态含 40 层" "$tmp/bk/SN4/.flash-state" "40-set-slot done"
+    else
+        # Task 1 桩期:按编号探测缺失 → 层未实现,零次设备写
+        assert_rc "S4 flash-all 上报缺失层(非零)" 6 "$RUN_RC"
+        assert_contains "S4 stderr 报层未实现" "$tmp/last.err" "层未实现"
+        assert_contains "S4 stderr 点名 20-flash-boot" "$tmp/last.err" "20-flash-boot"
+        assert_eq "S4 零次 fastboot flash/erase 调用(层未实现,未触设备写)" "0" "$(mock_log_count ' (flash|erase) ')"
+    fi
 }
 
 # ================================================================ S5
@@ -276,6 +285,162 @@ s5() {
     assert_first_line_prefix "S5c stderr 首行 DEVICE_REQUIRED" "$tmp/last.err" "DEVICE_REQUIRED:"
 }
 
+# ================================================================ S6
+s6() {
+    scenario "S6 00-unlock:无旗标退 5;有旗标在无备份状态下可独立成功并强指引立即备份(解锁→备份物理顺序,防死锁)"
+    local tmp=$RESULTS/S6
+    mkdir -p "$tmp"
+    export MOCK_LOG="$tmp/mock.log" MOCK_SERIAL=SN6
+    : >"$MOCK_LOG"
+    run_cmd "$tmp" bash "$OP6_DIR/00-unlock.sh" --backup-dir "$tmp/bk"
+    assert_rc "S6a 00-unlock 无旗标退 5" 5 "$RUN_RC"
+    assert_contains "S6a stderr 警示数据全清" "$tmp/last.err" "用户数据全清"
+    assert_contains "S6a stderr 指示旗标" "$tmp/last.err" "--i-accept-data-wipe"
+    assert_eq "S6a 零次 flashing unlock 调用" "0" "$(mock_log_count 'flashing unlock')"
+    run_cmd "$tmp" bash "$OP6_DIR/00-unlock.sh" --backup-dir "$tmp/bk" --i-accept-data-wipe
+    assert_rc "S6b 00-unlock 有旗标(无备份)独立成功" 0 "$RUN_RC"
+    assert_contains "S6b 输出强指引 10-backup-persist.sh" "$tmp/last.out" "10-backup-persist.sh"
+    assert_eq "S6b 发起 flashing unlock 一次" "1" "$(mock_log_count 'flashing unlock')"
+    assert_contains "S6b 层状态记录 00-unlock done" "$tmp/bk/SN6/.flash-state" "00-unlock done"
+    assert_contains "S6b 层状态留档 unlock_ability" "$tmp/bk/SN6/.flash-state" "unlock_ability=1"
+}
+
+# ================================================================ S7
+s7() {
+    scenario "S7 20 层:erase dtbo(×3)先于一切 flash;boot_a/boot_b 双 slot;vbmeta 两向"
+    local tmp=$RESULTS/S7
+    mkdir -p "$tmp"
+    export MOCK_LOG="$tmp/mock.log" MOCK_SERIAL=SN7
+    : >"$MOCK_LOG"
+    make_backup "$tmp" SN7
+    assert_rc "S7 前置: mock 备份成功" 0 "$(cat "$tmp/backup.rc")"
+    mk_images_dir "$tmp/imgs" yes
+    run_cmd "$tmp" bash "$OP6_DIR/20-flash-boot.sh" --backup-dir "$tmp/bk" --images-dir "$tmp/imgs"
+    assert_rc "S7 20 层(有 vbmeta)退出码 0" 0 "$RUN_RC"
+    # 顺序门禁:任何 flash 调用都不得先于第一个 erase dtbo
+    if awk '/erase dtbo/{e=1} / flash /{if(!e) exit 1}' "$tmp/mock.log"; then
+        ok "S7 erase dtbo 先于一切 flash 调用"
+    else
+        bad "S7 顺序门禁失效:存在先于 erase dtbo 的 flash 调用"
+    fi
+    assert_eq "S7 erase dtbo 三次(当前+dtbo_a+dtbo_b)" "3" "$(mock_log_count 'erase dtbo')"
+    assert_eq "S7 boot_a 写入一次" "1" "$(mock_log_count 'flash boot_a')"
+    assert_eq "S7 boot_b 写入一次" "1" "$(mock_log_count 'flash boot_b')"
+    assert_eq "S7 vbmeta 带旗标写入一次" "1" "$(mock_log_count 'disable-verity --disable-verification flash vbmeta')"
+    assert_contains "S7 层状态记录 20-flash-boot done" "$tmp/bk/SN7/.flash-state" "20-flash-boot done"
+    # 无 vbmeta 变体:跳过并说明,不失败
+    local tmp2=$RESULTS/S7b
+    mkdir -p "$tmp2"
+    export MOCK_LOG="$tmp2/mock.log"
+    : >"$MOCK_LOG"
+    make_backup "$tmp2" SN7
+    mk_images_dir "$tmp2/imgs" no
+    run_cmd "$tmp2" bash "$OP6_DIR/20-flash-boot.sh" --backup-dir "$tmp2/bk" --images-dir "$tmp2/imgs"
+    assert_rc "S7b 20 层(无 vbmeta)退出码 0" 0 "$RUN_RC"
+    assert_contains "S7b stderr 打印跳过原因" "$tmp2/last.err" "跳过 vbmeta"
+    assert_eq "S7b 零次 vbmeta 写入" "0" "$(mock_log_count 'flash vbmeta')"
+}
+
+# ================================================================ S8
+s8() {
+    scenario "S8 30 层:无 --yes 拒执行(退 5);超传输上限退 7;正常 --yes 成功"
+    local tmp=$RESULTS/S8
+    mkdir -p "$tmp"
+    export MOCK_LOG="$tmp/mock.log" MOCK_SERIAL=SN8
+    : >"$MOCK_LOG"
+    make_backup "$tmp" SN8
+    mk_images_dir "$tmp/imgs" no
+    run_cmd "$tmp" bash "$OP6_DIR/30-flash-rootfs.sh" --backup-dir "$tmp/bk" --images-dir "$tmp/imgs"
+    assert_rc "S8a 30 层无 --yes 退 5" 5 "$RUN_RC"
+    assert_contains "S8a stderr 指示 --yes" "$tmp/last.err" "--yes"
+    assert_contains "S8a 打印将覆盖的分区" "$tmp/last.out" "userdata"
+    assert_eq "S8a 零次 flash userdata" "0" "$(mock_log_count 'flash userdata')"
+    # 超上限:2 MiB 镜像 vs 1 MiB 检查值 → 退 7,上游指引,零写入
+    local tmp2=$RESULTS/S8b
+    mkdir -p "$tmp2"
+    export MOCK_LOG="$tmp2/mock.log"
+    : >"$MOCK_LOG"
+    make_backup "$tmp2" SN8
+    mk_images_dir "$tmp2/imgs" no 2097152
+    run_cmd "$tmp2" env ARCHMAGE_FLASH_MAX_TRANSFER_MB=1 \
+        bash "$OP6_DIR/30-flash-rootfs.sh" --backup-dir "$tmp2/bk" --images-dir "$tmp2/imgs" --yes
+    assert_rc "S8b 30 层超上限退 7" 7 "$RUN_RC"
+    assert_contains "S8b stderr 给上游指引" "$tmp2/last.err" "fastboot getvar max-download-size"
+    assert_eq "S8b 零次 flash userdata" "0" "$(mock_log_count 'flash userdata')"
+    # 正常路径:--yes → 成功写入 + 层状态
+    local tmp3=$RESULTS/S8c
+    mkdir -p "$tmp3"
+    export MOCK_LOG="$tmp3/mock.log"
+    : >"$MOCK_LOG"
+    make_backup "$tmp3" SN8
+    mk_images_dir "$tmp3/imgs" no
+    run_cmd "$tmp3" bash "$OP6_DIR/30-flash-rootfs.sh" --backup-dir "$tmp3/bk" --images-dir "$tmp3/imgs" --yes
+    assert_rc "S8c 30 层 --yes 成功" 0 "$RUN_RC"
+    assert_eq "S8c flash userdata 一次" "1" "$(mock_log_count 'flash userdata')"
+    assert_contains "S8c 层状态记录 30-flash-rootfs done" "$tmp3/bk/SN8/.flash-state" "30-flash-rootfs done"
+}
+
+# ================================================================ S9
+s9() {
+    scenario "S9 全链 flash-all(mock):备份门→40 层状态完成;中断重跑仅执行剩余层(SKIP)"
+    local tmp=$RESULTS/S9
+    mkdir -p "$tmp"
+    export MOCK_LOG="$tmp/mock.log" MOCK_SERIAL=SN9
+    : >"$MOCK_LOG"
+    make_backup "$tmp" SN9
+    prime_00_state "$tmp/bk" SN9
+    mk_images_dir "$tmp/imgs" yes
+    run_cmd "$tmp" bash "$OP6_DIR/flash-all.sh" --backup-dir "$tmp/bk" --images-dir "$tmp/imgs" --yes
+    assert_rc "S9a 全链退出码 0" 0 "$RUN_RC"
+    local state=$tmp/bk/SN9/.flash-state
+    assert_contains "S9a 状态含 20 层" "$state" "20-flash-boot done"
+    assert_contains "S9a 状态含 30 层" "$state" "30-flash-rootfs done"
+    assert_contains "S9a 状态含 40 层" "$state" "40-set-slot done"
+    if awk '/erase dtbo/{e=1} / flash /{if(!e) exit 1}' "$tmp/mock.log"; then
+        ok "S9a 全链中 erase dtbo 先于一切 flash"
+    else
+        bad "S9a 全链顺序门禁失效"
+    fi
+    assert_eq "S9a set_active 一次" "1" "$(mock_log_count 'set_active')"
+    # 人为中断:从状态文件抹掉 30/40 完成行,重跑只应执行剩余层
+    sed -i '/^30-flash-rootfs done/d;/^40-set-slot done/d' "$state"
+    export MOCK_LOG="$tmp/mock-rerun.log"
+    : >"$MOCK_LOG"
+    run_cmd "$tmp" bash "$OP6_DIR/flash-all.sh" --backup-dir "$tmp/bk" --images-dir "$tmp/imgs" --yes
+    assert_rc "S9b 中断重跑退出码 0" 0 "$RUN_RC"
+    assert_contains "S9b stdout SKIP 已完成的 20 层" "$tmp/last.out" "SKIP 20-flash-boot"
+    assert_eq "S9b 重跑零次 erase dtbo(20 层被跳过)" "0" "$(mock_log_count 'erase dtbo')"
+    assert_eq "S9b 重跑零次 flash boot(20 层被跳过)" "0" "$(mock_log_count 'flash boot')"
+    assert_eq "S9b 重跑 flash userdata 一次(30 层补做)" "1" "$(mock_log_count 'flash userdata')"
+    assert_eq "S9b 重跑 set_active 一次(40 层补做)" "1" "$(mock_log_count 'set_active')"
+    assert_contains "S9b 状态恢复含 40 层" "$state" "40-set-slot done"
+}
+
+# ================================================================ S10
+s10() {
+    scenario "S10 分区拒绝断言两向:清单内(xbl/dtbo/modemst1/persist/xbl_a)退 3;允许面(boot_a/userdata/vbmeta)放行"
+    local tmp=$RESULTS/S10
+    mkdir -p "$tmp"
+    local p rc bad_count=0
+    for p in xbl xbl_config modem modemst1 modemst2 abl tz hyp rpm keymaster devinfo persist fsc fsg dtbo xbl_a xbl_b dtbo_a; do
+        ( exec 2>"$tmp/assert.err"; bash -c 'source "$1"; archmage_flash::assert_flash_target "$2"' _ "$OP6_DIR/lib.sh" "$p" )
+        rc=$?
+        if [ "$rc" -ne 3 ]; then
+            bad_count=$((bad_count + 1))
+            bad "S10 拒绝清单分区 $p 应退 3, 实得 rc=$rc"
+        fi
+    done
+    [ "$bad_count" -eq 0 ] && ok "S10 全部拒绝清单分区(含 slot 后缀)退 3"
+    assert_contains "S10 拒绝理由指向 PITFALLS 3" "$tmp/assert.err" "拒绝刷写分区"
+    for p in boot boot_a boot_b vbmeta userdata system; do
+        if bash -c 'source "$1"; archmage_flash::assert_flash_target "$2"' _ "$OP6_DIR/lib.sh" "$p" 2>/dev/null; then
+            ok "S10 允许面分区 $p 放行"
+        else
+            bad "S10 允许面分区 $p 不应被拒绝"
+        fi
+    done
+}
+
 # ---------------------------------------------------------------- 执行
 s1
 s1b
@@ -283,6 +448,11 @@ s2
 s3
 s4
 s5
+s6
+s7
+s8
+s9
+s10
 
 # ---------------------------------------------------------------- 汇总
 printf '\n' | tee -a "$RESULTS/summary.log"
