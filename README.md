@@ -4,7 +4,7 @@
 >
 > An open, CN-localized Arch Linux ARM phone OS: Phosh mobile stack plus factory CN defaults, maintained entirely as code.
 
-**状态 / Status:** Phase 1(骨架与开发环回)— CN 元包全家桶可本地构建,push 到 main 由 arm64 CI 出签名 staging 仓库;QEMU 开发环回与镜像构建见路线图。
+**状态 / Status:** Phase 2(OnePlus 6 镜像管线)进行中——`image.yml` 每日镜像流水线(OP6 aarch64 + x86_64 QEMU → 结构门禁 → nightly Release)与本地产线脚本已就绪,首跑待公开仓库创建与推送(见 `.planning/` user_setup);Phase 1 成果(CN 元包 arm64 CI 签名仓库、QEMU 开发环回)持续可用。
 
 技术策略与阶段路线见 [STRATEGY.md](STRATEGY.md);贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
@@ -16,7 +16,7 @@
 | `overlay/phosh/` | Phosh 风味包(Phase 2 填充) |
 | `overlay/device/` | 设备 overlay(Phase 2,OnePlus 6) |
 | `overlay/qemu/` | QEMU 虚拟设备包(Phase 1,01-02) |
-| `bootstrap/` | kupferbootstrap fork(Phase 2 填充) |
+| `bootstrap/` | kupferbootstrap 配置与镜像构建驱动(02-01;overlay-only,不含 fork) |
 | `test/` | QEMU 冒烟测试与 fixtures(01-02 填充;`fixtures/pacman-verify.conf` 已可用) |
 | `flash/op6/` | OnePlus 6 分层刷机脚本(Phase 2 填充) |
 | `tools/` | 自动化维护工具(Phase 4 填充) |
@@ -79,6 +79,33 @@
 
 - **签名纪律**(PITFALLS 2):上游 ALARM 仓库 `SigLevel Required DatabaseOptional`(ALARM 不分发签名数据库),自有仓库 `Required`;全仓库禁 `TrustAll`。
 
+## 镜像发布(`image.yml`,nightly)
+
+每日(schedule 03:17 UTC / dispatch / push)产出两套镜像并发布为 GitHub Release **`nightly`**(prerelease):
+
+| Job | 镜像 | 门禁 | tier |
+| --- | --- | --- | --- |
+| `op6-image`(arm64 runner) | `archmage-op6-phosh-YYYYMMdd-{boot,rootfs}.img.xz`(aarch64,device `sdm845-oneplus-enchilada`) | Android boot magic + loop-mount rootfs 后 shipping-discipline / phosh / archmage-cn 断言(`tools/checks/verify-image.sh`) | `device-pending`(结构已验,真机启动由 02-02/02-03) |
+| `qemu-x86_64-image` | `archmage-qemu-x86_64-YYYYMMdd.img.xz` | CI 内无头启动到 SSH 的 smoke 断言集(`test/smoke-x86_64.sh`)+ `verify-image.sh` | `qemu`(CI 已验启动) |
+
+**资产三件套**:每个 `.img.xz` 都伴随同名 `.sha256` 与 `.sig`(detached GPG 签名);外加 `manifest.json`(`name/arch/device/flavour/tier/build_date/sha256/sig_key_fingerprint/ephemeral_key`)与 `FINGERPRINT.txt`。签名密钥策略与 staging 仓库一致:配置了 `GPG_PRIVATE_KEY`/`GPG_PASSPHRASE` secrets 时用持久密钥,否则用**仅本次运行有效**的 ephemeral 密钥并在 `manifest.json`(`ephemeral_key: true`)与 `FINGERPRINT.txt` 双标记 —— 其签名只证明本次运行自身的完整性,不可作为 ArchMage 来源证明。发布保留最近 3 个 dated nightly(`nightly-YYYYMMdd`),移动 `nightly` 标签始终指向最新资产;发布仅用官方 `gh CLI`,无任何第三方 release action。
+
+**校验与使用**:
+
+```bash
+# 取像(移动 nightly 标签)+ 校验
+gh release download nightly -p 'archmage-qemu-x86_64-*.img.xz' -p '*.sha256' -p '*.sig' \
+  -p 'FINGERPRINT.txt' -p 'manifest.json'
+sha256sum -c archmage-qemu-x86_64-*.img.xz.sha256
+gpg --verify archmage-qemu-x86_64-*.img.xz.sig archmage-qemu-x86_64-*.img.xz
+  # gpg 需先导入发布公钥:指纹见 FINGERPRINT.txt(与项目公示的 staging
+  # 密钥指纹核对后导入;ephemeral 密钥签名的资产见上段警示)
+jq -r '.tier' manifest.json   # qemu = CI 已验启动;device-pending = 结构已验待真机
+xz -d archmage-qemu-x86_64-*.img.xz
+```
+
+x86_64 开发镜像即 `vm-x86_64.sh` 的官方取像来源(见下节);解压后 `--image` 直接可传。
+
 ## 模拟器开发环回
 
 两条命令构成开发环回的"运行与验证"半边。
@@ -113,7 +140,7 @@ test/vm-x86_64.sh --image /path/to/image.raw           # 交互启动(KVM,无 KV
 
 virtio 存储/网络 + virtio-vga + usb-tablet,内存 4096M,SSH 转发仅绑 `127.0.0.1:2222`;raw 与 qcow2 均可(EFI 引导走 OVMF,EFI 变量持久化在镜像旁 `<image>.vars.fd`;也可用 `--kernel/--initrd` 直启旁路)。
 
-**镜像获取当前为手动步骤(SKELETON 标注的 stub,Phase 2 由 kupferbootstrap 自动化)**:可现成使用 [postmarketOS generic x86_64 Phosh 镜像](https://images.postmarketos.org/genericx86/)(`unxz` 解压后直接传入),脚本未提供镜像时也会打印该指引并以非零退出。
+**镜像获取(Phase 1 的 SKELETON 手动取像 stub 已由 02-01 关闭)**:官方来源是 nightly Release 的 x86_64 开发镜像(上节「镜像发布」的取像命令;`test/mkrootfs-x86_64.sh` 亦可本地从 staging 仓库构建等价镜像)。`vm-x86_64.sh` 代码未变,`--image` 直接传入解压出的 raw 镜像即可;未提供镜像时脚本仍打印取像指引并以非零退出,postmarketOS 通用镜像仍可作为临时替代。
 
 ## 命名与商标
 

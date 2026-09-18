@@ -6,8 +6,22 @@ name: image
 #     packages.yml staging-repo artifact -> bootstrap/bootstrap.sh ->
 #     kupferbootstrap OP6 image (profile archmage-op6-phosh) + the CN layer
 #     installed with full signature discipline (see bootstrap/bootstrap.sh
-#     for the two-stage design). Artifacts: Android boot image (aboot),
-#     rootfs partition image, manifest.json (tier=device-pending).
+#     for the two-stage design) -> verify-image.sh structure gate (Android
+#     boot magic + loop-mounted rootfs discipline/phosh/archmage-cn
+#     assertions) -> xz + sha256 + gpg signatures -> release-ready artifact
+#     (tier=device-pending: structure-verified, real-device boot is 02-02/03).
+#
+#   qemu-x86_64-image (ubuntu-latest, docker available):
+#     mkrootfs-x86_64.sh builds the x86_64 dev image from the same staging
+#     artifact, smoke-x86_64.sh boots it headless in QEMU to SSH and runs the
+#     assertion gates (exit code IS the gate; tier=qemu: CI-verified boot),
+#     then verify-image.sh + xz/sha256/gpg -> release-ready artifact.
+#
+#   publish-nightly (needs BOTH image jobs; the only job with contents:write):
+#     official gh CLI only (no third-party release action): recreates the
+#     moving `nightly` prerelease with the current asset set, keeps a dated
+#     nightly-YYYYMMDD copy, and prunes to the 3 most recent dated nightlies
+#     (bandwidth bounds, PITFALLS 7).
 #
 # Hardening (threat model 02-01):
 #   - every action is official (actions/*) and pinned by full commit SHA
@@ -18,8 +32,12 @@ name: image
 #   - kbs is installed from the pinned upstream tag recorded in
 #     bootstrap/kbs-version.txt (T-02-03 / T-02-SC: no vendored kbs source,
 #     no curl|bash);
-#   - timeout-minutes bounds the build (T-01-13 budget); a timeout is a
-#     failure, and no gate step carries continue-on-error.
+#   - timeout-minutes bounds every build (T-01-13 budget); a timeout is a
+#     failure, and no gate step carries continue-on-error;
+#   - signing: persistent key from GPG_PRIVATE_KEY/GPG_PASSPHRASE secrets
+#     when configured, ephemeral run key otherwise — flagged in manifest.json
+#     (ephemeral_key) and FINGERPRINT.txt exactly like packages.yml (T-02-02,
+#     T-02-05); nothing is published without passing verify-image.sh first.
 
 on:
   schedule:
@@ -30,6 +48,8 @@ on:
     branches: [main]
     paths:
       - 'bootstrap/**'
+      - 'test/**'
+      - 'tools/checks/**'
       - '.github/workflows/image.yml'
 
 permissions:
@@ -38,13 +58,18 @@ permissions:
   actions: read
 
 concurrency:
-  group: image-op6
+  group: image
   cancel-in-progress: false
 
 jobs:
   op6-image:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
+    permissions:
+      # Build jobs never write repository content (publish-nightly is the
+      # only job with contents:write).
+      contents: read
+      actions: read
     env:
       # Scope any gh call to this repository.
       ARCHMAGE_GH_REPO: ${{ github.repository }}
@@ -53,11 +78,12 @@ jobs:
         # v7.0.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Install python3/pip
+      - name: Install toolchain (python3/pip, xz, gpg, jq)
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends python3 python3-pip
+          sudo apt-get install -y --no-install-recommends \
+              python3 python3-pip xz-utils gnupg jq
           python3 --version
 
       - name: Install kupferbootstrap toolchain (pinned)
@@ -107,19 +133,69 @@ jobs:
           set -euo pipefail
           bash bootstrap/bootstrap.sh --staging-dir "$RUNNER_TEMP/staging-repo"
 
-      - name: Collect image artifacts
+      - name: Verify OP6 image structure (gate)
+        # Full mount mode as root: Android boot magic on the aboot image,
+        # loop-mounted rootfs discipline + phosh + archmage-cn + live
+        # [archmage] repo assertions. A failure here stops the pipeline —
+        # the image never reaches the Release.
+        run: |
+          set -euo pipefail
+          mkdir -p op6-image-out
+          sudo bash tools/checks/verify-image.sh \
+            --image-kind op6 \
+            --boot-img bootstrap/.work/kupfer/images/sdm845-oneplus-enchilada-aboot.img \
+            --rootfs-img bootstrap/.work/kupfer/images/sdm845-oneplus-enchilada-phosh-root.img \
+            --out op6-image-out/verify-image.json
+          sudo chown -R "$(id -u):$(id -g)" op6-image-out
+          cat op6-image-out/verify-image.json >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Sign, compress and package release assets
+        # xz -T0 -3 (threaded, preset 3): preset 6 on a multi-GiB rootfs does
+        # not fit the 45-minute arm64 budget; -3 keeps the ratio sane.
+        # Signing policy mirrors packages.yml: persistent key from secrets,
+        # ephemeral run key otherwise — always flagged in manifest.json and
+        # FINGERPRINT.txt.
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
           images="bootstrap/.work/kupfer/images"
           out="op6-image-out"
-          mkdir -p "$out"
-          cp "$images/sdm845-oneplus-enchilada-aboot.img" "$out/archmage-op6-boot.img"
-          cp "$images/sdm845-oneplus-enchilada-phosh-root.img" "$out/archmage-op6-rootfs.img"
-          # manifest.json — per-image contract consumed by 02-02/02-03:
-          # tier labels the verification level reached (PITFALLS 4): the OP6
-          # image is structure-verified only; real-device boot is 02-02/03.
           build_date="$(date -u +%Y%m%d)"
-          sha256="$(sha256sum "$out/archmage-op6-rootfs.img" | cut -d' ' -f1)"
+          boot="archmage-op6-phosh-${build_date}-boot.img"
+          root="archmage-op6-phosh-${build_date}-rootfs.img"
+          sudo cp "$images/sdm845-oneplus-enchilada-aboot.img" "$out/$boot"
+          sudo cp "$images/sdm845-oneplus-enchilada-phosh-root.img" "$out/$root"
+          sudo chown -R "$(id -u):$(id -g)" "$out"
+
+          ephemeral=false
+          if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+            printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+            if [ -n "${GPG_PASSPHRASE:-}" ]; then
+              echo "allow-preset-passphrase" >> "$HOME/.gnupg/gpg-agent.conf"
+              gpg-connect-agent reloadagent /bye >/dev/null 2>&1 || true
+              keygrip="$(gpg --list-secret-keys --with-keygrip "$keyid" | awk '/Keygrip/{print $3; exit}')"
+              /usr/lib/gnupg/gpg-preset-passphrase --passphrase "$GPG_PASSPHRASE" -c "$keygrip"
+            fi
+          else
+            # Ephemeral fallback: key valid for this run only; flagged in
+            # manifest.json (ephemeral_key) and FINGERPRINT.txt (T-02-05).
+            ephemeral=true
+            gpg --batch --passphrase '' --quick-generate-key \
+              'ArchMage images (EPHEMERAL, this run only)' ed25519 sign 0
+            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+          fi
+
+          cd "$out"
+          for img in "$boot" "$root"; do
+            xz -T0 -3 "$img"
+            sha256sum "$img.xz" > "$img.xz.sha256"
+            gpg --batch --yes --detach-sign --local-user "$keyid" "$img.xz"
+          done
+
+          root_sha256="$(sha256sum "$root.xz" | cut -d' ' -f1)"
           jq -n \
             --arg name "archmage-op6-phosh" \
             --arg arch "aarch64" \
@@ -127,12 +203,36 @@ jobs:
             --arg flavour "phosh" \
             --arg tier "device-pending" \
             --arg build_date "$build_date" \
-            --arg sha256 "$sha256" \
+            --arg sha256 "$root_sha256" \
+            --arg sig_key_fingerprint "$keyid" \
+            --argjson ephemeral_key "$ephemeral" \
+            --arg boot_sha256 "$(sha256sum "$boot.xz" | cut -d' ' -f1)" \
             '{name: $name, arch: $arch, device: $device, flavour: $flavour,
-              tier: $tier, build_date: $build_date, sha256: $sha256}' \
-            > "$out/manifest.json"
-          cat "$out/manifest.json"
-          ls -la "$out"
+              tier: $tier, build_date: $build_date, sha256: $sha256,
+              sig_key_fingerprint: $sig_key_fingerprint,
+              ephemeral_key: $ephemeral_key,
+              files: {rootfs: {name: ($name + "-" + $build_date + "-rootfs.img.xz"), sha256: $sha256},
+                      boot: {name: ($name + "-" + $build_date + "-boot.img.xz"), sha256: $boot_sha256}}}' \
+            > manifest.json
+
+          {
+            echo "ArchMage OP6 image assets"
+            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "FINGERPRINT: $keyid"
+            echo "EPHEMERAL: $ephemeral"
+            echo "tier: device-pending (structure-verified; real-device boot is 02-02/02-03)"
+            if [ "$ephemeral" = "yes" ] || [ "$ephemeral" = "true" ]; then
+              echo ""
+              echo "WARNING: EPHEMERAL key, generated for this run only."
+              echo "Signatures prove this run's own integrity, NOT ArchMage"
+              echo "provenance. Configure GPG_PRIVATE_KEY / GPG_PASSPHRASE to"
+              echo "enable the persistent key."
+            fi
+          } > FINGERPRINT.txt
+          cat FINGERPRINT.txt
+          cat manifest.json
+          ls -la
 
       - name: Upload op6-image artifact
         # v7.0.1
@@ -141,3 +241,204 @@ jobs:
           name: op6-image
           path: op6-image-out/
           if-no-files-found: error
+
+  qemu-x86_64-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ARCHMAGE_GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install toolchain (xz, gpg, jq)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xz-utils gnupg jq
+
+      - name: Build, boot and assert the x86_64 dev image (smoke gate)
+        # smoke-x86_64.sh builds the rootfs (mkrootfs-x86_64.sh, self-wrapped
+        # archlinux:base container via docker), boots it headless in QEMU
+        # (self-wrapped qemu container) and runs the assertion set. The
+        # script's exit code IS the gate — SSH-ready, no failed units,
+        # pacman -Syu via the CN mirror + embedded [archmage] repo, CN
+        # defaults installed (phosh stays informational).
+        run: |
+          set -euo pipefail
+          bash test/smoke-x86_64.sh --from-ci --timeout 600
+
+      - name: Verify x86_64 image structure (gate)
+        # Full mount mode as root on the ext4 the smoke just booted: the
+        # discipline detector + phosh/archmage-cn/[archmage] assertions.
+        run: |
+          set -euo pipefail
+          mkdir -p qemu-image-out
+          sudo bash tools/checks/verify-image.sh \
+            --image-kind qemu-x86_64 \
+            --rootfs-img test/build/x86_64/rootfs.ext4 \
+            --out qemu-image-out/verify-image.json
+          sudo chown -R "$(id -u):$(id -g)" qemu-image-out
+          cat qemu-image-out/verify-image.json >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Sign, compress and package release assets
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          out="qemu-image-out"
+          build_date="$(date -u +%Y%m%d)"
+          img="archmage-qemu-x86_64-${build_date}.img"
+          cp test/build/x86_64/rootfs.ext4 "$out/$img"
+
+          ephemeral=false
+          if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+            printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+            if [ -n "${GPG_PASSPHRASE:-}" ]; then
+              echo "allow-preset-passphrase" >> "$HOME/.gnupg/gpg-agent.conf"
+              gpg-connect-agent reloadagent /bye >/dev/null 2>&1 || true
+              keygrip="$(gpg --list-secret-keys --with-keygrip "$keyid" | awk '/Keygrip/{print $3; exit}')"
+              /usr/lib/gnupg/gpg-preset-passphrase --passphrase "$GPG_PASSPHRASE" -c "$keygrip"
+            fi
+          else
+            ephemeral=true
+            gpg --batch --passphrase '' --quick-generate-key \
+              'ArchMage images (EPHEMERAL, this run only)' ed25519 sign 0
+            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+          fi
+
+          cd "$out"
+          xz -T0 -3 "$img"
+          sha256sum "$img.xz" > "$img.xz.sha256"
+          gpg --batch --yes --detach-sign --local-user "$keyid" "$img.xz"
+
+          jq -n \
+            --arg name "archmage-qemu-x86_64" \
+            --arg arch "x86_64" \
+            --arg device "qemu-x86_64" \
+            --arg flavour "dev" \
+            --arg tier "qemu" \
+            --arg build_date "$build_date" \
+            --arg sha256 "$(sha256sum "$img.xz" | cut -d' ' -f1)" \
+            --arg sig_key_fingerprint "$keyid" \
+            --argjson ephemeral_key "$ephemeral" \
+            '{name: $name, arch: $arch, device: $device, flavour: $flavour,
+              tier: $tier, build_date: $build_date, sha256: $sha256,
+              sig_key_fingerprint: $sig_key_fingerprint,
+              ephemeral_key: $ephemeral_key}' \
+            > manifest.json
+
+          {
+            echo "ArchMage x86_64 QEMU dev image"
+            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "FINGERPRINT: $keyid"
+            echo "EPHEMERAL: $ephemeral"
+            echo "tier: qemu (boot verified headless in CI to SSH; PITFALLS 4: QEMU green is not device green)"
+            if [ "$ephemeral" = "true" ]; then
+              echo ""
+              echo "WARNING: EPHEMERAL key, generated for this run only."
+            fi
+          } > FINGERPRINT.txt
+          cat FINGERPRINT.txt
+          cat manifest.json
+          ls -la
+
+      - name: Upload qemu-x86_64-image artifact
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: qemu-x86_64-image
+          path: qemu-image-out/
+          if-no-files-found: error
+
+      - name: Upload smoke results
+        # Triage artifacts of the boot gate (smoke.json, discipline.json,
+        # serial/journal logs) — the gate verdict is archived for review.
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: qemu-smoke-results
+          path: test/results/latest/
+          if-no-files-found: warn
+
+  publish-nightly:
+    needs: [op6-image, qemu-x86_64-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # The ONLY job allowed to write: creates/updates the nightly
+      # prereleases and prunes old ones (T-02-04: key/asset handling and
+      # write access stay confined to this ephemeral runner job).
+      contents: write
+    steps:
+      - name: Download op6-image artifact
+        # v7.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: op6-image
+          path: release-assets/op6/
+
+      - name: Download qemu-x86_64-image artifact
+        # v7.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: qemu-x86_64-image
+          path: release-assets/qemu-x86_64/
+
+      - name: Publish nightly prerelease (gh CLI)
+        # Official gh CLI only (T-01-03: no third-party release action).
+        # - recreate the moving `nightly` prerelease with the CURRENT asset
+        #   set (dated filenames make clobber insufficient, so the release
+        #   is deleted and recreated — stale assets can never linger);
+        # - keep a dated nightly-YYYYMMDD copy for history;
+        # - prune to the 3 most recent dated nightlies (PITFALLS 7).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          today="$(date -u +%Y%m%d)"
+          notes="$(printf 'ArchMage nightly images (auto-built %s)\n\nAssets: op6 (tier=device-pending: structure-verified, device boot pending 02-02/03) and x86_64 QEMU (tier=qemu: CI-booted to SSH). Verify with the .sha256 and .sig files — see README "镜像发布".' "$(date -u +%Y-%m-%d)")"
+
+          if gh release view "nightly-${today}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "nightly-${today}" release-assets/op6/* release-assets/qemu-x86_64/* \
+              --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "nightly-${today}" release-assets/op6/* release-assets/qemu-x86_64/* \
+              --prerelease --target "$GITHUB_SHA" \
+              --title "ArchMage nightly ${today}" \
+              --notes "$notes" --repo "$GITHUB_REPOSITORY"
+          fi
+
+          gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create nightly release-assets/op6/* release-assets/qemu-x86_64/* \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "ArchMage nightly (moving)" \
+            --notes "$notes" --repo "$GITHUB_REPOSITORY"
+
+          # Prune dated nightlies beyond the 3 most recent.
+          gh release list --repo "$GITHUB_REPOSITORY" --json tagName \
+            --jq '.[].tagName | select(startswith("nightly-"))' \
+            | sort -r | tail -n +4 \
+            | while read -r tag; do
+                echo "pruning old nightly release: $tag"
+                gh release delete "$tag" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY"
+              done
+
+          {
+            echo "## Nightly release"
+            echo ""
+            echo "- op6 manifest (tier=device-pending):"
+            cat release-assets/op6/manifest.json 2>/dev/null | sed 's/^/  /' || true
+            echo "- qemu-x86_64 manifest (tier=qemu):"
+            cat release-assets/qemu-x86_64/manifest.json 2>/dev/null | sed 's/^/  /' || true
+            gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[] | "- asset: \(.name) (\(.size) bytes)"'
+          } >> "$GITHUB_STEP_SUMMARY"

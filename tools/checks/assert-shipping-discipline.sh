@@ -23,7 +23,16 @@
 #                                 archmage host) must be Required
 #                                 WITHOUT DatabaseOptional (we sign our
 #                                 databases; weakening them is a policy
-#                                 breach).
+#                                 breach);
+#                               - kupfer UPSTREAM prebuilt sections (Server
+#                                 on a kupfer host, or a serverless known
+#                                 kupfer repo name at exactly Never) may
+#                                 keep upstream `SigLevel = Never`: kupfer
+#                                 prebuilts are unsigned, Never is their
+#                                 upstream policy preserved verbatim
+#                                 (02-01 plan: "不属我们放宽"). TrustAll is
+#                                 still banned and anything other than
+#                                 Never/Required still fails.
 #   3. no_device_firmware_blobs — no Qualcomm device-extracted firmware in
 #                               <rootfs>/usr/lib/firmware or <rootfs>/boot:
 #                               files named *.mbn / *.b0[0-9], bdwlan*/bdwhan*
@@ -65,7 +74,8 @@ Assertions (all gating; see the header comment for the full policy):
   no_trustall              zero "TrustAll" occurrences incl. comments
   siglevel_policy          Never/TrustAll banned; Required everywhere;
                            ALARM sections Required DatabaseOptional;
-                           archmage sections Required (no DatabaseOptional)
+                           archmage sections Required (no DatabaseOptional);
+                           kupfer upstream prebuilts may keep upstream Never
   no_device_firmware_blobs Qualcomm-shaped blobs outside the linux-firmware
                            whitelist (rootfs pacman local db)
 
@@ -237,24 +247,65 @@ else
                 *)
                     case "$servers" in
                         *archlinuxarm*) class=alarm ;;
+                        *) class="" ;;
+                    esac
+                    ;;
+            esac
+        fi
+        if [ -z "$class" ]; then
+            # kupfer UPSTREAM prebuilts (02-01): identified by Server on a
+            # kupfer host (gitlab.com/kupfer/... or a file:// checkout path
+            # under kupfer's packages dir — kbs writes both shapes). Never is
+            # their upstream policy for unsigned prebuilts, preserved
+            # verbatim; it is not an ArchMage weakening.
+            case "$servers" in
+                *kupfer*) class=kupfer ;;
+                *)
+                    # Serverless known-kupfer-name sections at exactly Never
+                    # (e.g. kupfer_local, local_only repos carry no Server).
+                    case ",$tokens," in
+                        ",NEVER,")
+                            case "$sec" in
+                                kupfer_local|boot|cross|device|firmware|linux|main|phosh|plasma_mobile|gnome_mobile) class=kupfer ;;
+                                *) class=other ;;
+                            esac
+                            ;;
                         *) class=other ;;
                     esac
                     ;;
             esac
         fi
 
-        # Policy checks.
+        # Policy checks. TrustAll is banned unconditionally.
         case ",$tokens," in
-            *,NEVER,*|*,TRUSTALL,*)
+            *,TRUSTALL,*)
                 sig_bad "[$sec] forbidden SigLevel token in '$effective'"
                 ;;
         esac
-        case ",$tokens," in
-            *,REQUIRED,*) : ;;
-            *)
-                sig_bad "[$sec] package level not Required (effective '$effective' from $eff_src)"
-                ;;
-        esac
+        if [ "$class" = kupfer ]; then
+            # Upstream kupfer prebuilts: exactly Never (unsigned upstream)
+            # or an explicit Required are both acceptable; anything else is
+            # a misconfiguration.
+            case ",$tokens," in
+                ",NEVER,") : ;;
+                *,REQUIRED,*) : ;;
+                *)
+                    sig_bad "[$sec] kupfer upstream repo is neither Never nor Required (effective '$effective' from $eff_src)"
+                    ;;
+            esac
+        else
+            case ",$tokens," in
+                *,NEVER,*)
+                    sig_bad "[$sec] forbidden SigLevel token in '$effective'"
+                    ;;
+            esac
+            case ",$tokens," in
+                *,REQUIRED,*) : ;;
+                *)
+                    sig_bad "[$sec] package level not Required (effective '$effective' from $eff_src)"
+                    ;;
+            esac
+        fi
         case "$class" in
             alarm)
                 case ",$tokens," in
@@ -277,7 +328,7 @@ else
             "$sec" "$class" "$effective" "$eff_src" >&2
     done
 fi
-[ -n "$sig_details" ] || sig_details="all repository sections comply (Never/TrustAll banned, Required everywhere, ALARM=DatabaseOptional, archmage=no DatabaseOptional)"
+[ -n "$sig_details" ] || sig_details="all repository sections comply (Never/TrustAll banned, Required everywhere, ALARM=DatabaseOptional, archmage=no DatabaseOptional, kupfer upstream Never preserved)"
 record siglevel_policy "$sig_status" "$sig_details"
 
 # --------------------------------------------------------------------------
