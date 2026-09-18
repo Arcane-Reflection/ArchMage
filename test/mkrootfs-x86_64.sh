@@ -277,6 +277,10 @@ EOF
     rm -rf "$ROOTFS_DIR"
     mkdir -p "$ROOTFS_DIR"
     archmage_info "pacstrapping base + linux + phosh stack + archmage-cn into $ROOTFS_DIR"
+    # Fresh throwaway cache: a cache carried over from a previous run holds
+    # packages signed by a PREVIOUS staging key; after key rotation
+    # (ephemeral local keys) the transaction fails signature verification.
+    rm -rf "$X86_64_DIR/pacman-cache"
     mkdir -p "$X86_64_DIR/pacman-cache"
     # archmage-phosh-safety + archmage-cn-apn: the same stage-2 set as
     # bootstrap/bootstrap.sh (02-03). verify-image.sh asserts

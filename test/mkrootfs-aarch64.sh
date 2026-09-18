@@ -310,6 +310,11 @@ SigLevel = Required
 Server = file:///work/test/build/staging-repo
 EOF
     archmage_info "installing openssh + archmage-cn into the rootfs (pacman -r, this also runs the CN factory scriptlets)"
+    # Fresh throwaway cache: a cache carried over from a previous run holds
+    # packages signed by a PREVIOUS staging key; after key rotation (e.g.
+    # ephemeral local keys) pacman rejects them with 'signature is invalid'
+    # even though the bytes are identical.
+    rm -rf "$AARCH64_DIR/pacman-cache"
     mkdir -p "$AARCH64_DIR/pacman-cache"
     pacman -r "$ROOTFS_DIR" --config "$AARCH64_DIR/pacman-install.conf" \
         --cachedir "$AARCH64_DIR/pacman-cache" \
