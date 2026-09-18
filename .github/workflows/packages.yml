@@ -259,8 +259,16 @@ jobs:
                 'ArchMage staging (EPHEMERAL, this run only)' ed25519 sign 0
               keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
             fi
+            # Per-package detached signatures INSIDE the artifact: consumers
+            # verify at package level Required (pacman fetches
+            # <pkg>.pkg.tar.zst.sig from the repo server; reproduced locally:
+            # mkrootfs's install died fetching archmage-cn-mirror-...sig when
+            # the sigs stayed behind in PKGDEST). Sign the staged copies.
             if [ "${#pkgfiles[@]}" -gt 0 ]; then
-              repo-add -s -k "$keyid" --include-sigs staging-repo/cn.db.tar.zst "${pkgfiles[@]}"
+              ( cd staging-repo && for f in *.pkg.tar.zst; do
+                  gpg --batch --yes --detach-sign --local-user "$keyid" --output "$f.sig" "$f"
+                done )
+              repo-add -s -k "$keyid" --include-sigs staging-repo/cn.db.tar.zst staging-repo/*.pkg.tar.zst
             else
               repo-add -s -k "$keyid" staging-repo/cn.db.tar.zst
             fi
