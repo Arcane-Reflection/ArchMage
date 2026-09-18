@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # assert-shipping-discipline.sh — machine-enforced shipping discipline for a
-# factory rootfs (QUAL-01, plan 01-03 Task 2).
+# factory rootfs (QUAL-01, plan 01-03 Task 2; extended 02-03 Task 1).
 #
-# Three assertion classes, all gating:
+# Five assertion classes, all gating:
 #   1. no_trustall            — the string "TrustAll" must not appear
 #                               anywhere in <rootfs>/etc/pacman.conf or the
 #                               whole <rootfs>/etc/pacman.d/ tree, comments
@@ -42,6 +42,21 @@
 #                               local db (the redistributable whitelist;
 #                               STRATEGY §4: device-extracted blobs never
 #                               ship, redistributable linux-firmware passes).
+#   4. no_recommender_components — no advertising / recommender / telemetry
+#                               package in the rootfs pacman local db
+#                               (SAFETY-02): every installed package name is
+#                               matched against the globs in
+#                               safety-denylist.txt (next to this script);
+#                               a hit fails with the package and glob.
+#   5. safety_config_present  — phosh in the local db ⇒ archmage-phosh-safety
+#                               must be installed AND both key files present:
+#                               /usr/share/glib-2.0/schemas/
+#                               90_archmage-phosh-safety.gschema.override and
+#                               /etc/dconf/db/local.d/locks/archmage-safety
+#                               (SAFETY-01/02 machine face: lockscreen content
+#                               push is default-off and dconf-locked). No
+#                               phosh in the db (e.g. QEMU rootfs) ⇒ pass,
+#                               marked not-applicable.
 #
 # Output: discipline.json (schema_version 1, same assertion-array style as
 # the 01-02 smoke.json) via --out FILE. Exit 0 iff every assertion passed —
@@ -78,6 +93,11 @@ Assertions (all gating; see the header comment for the full policy):
                            kupfer upstream prebuilts may keep upstream Never
   no_device_firmware_blobs Qualcomm-shaped blobs outside the linux-firmware
                            whitelist (rootfs pacman local db)
+  no_recommender_components no package name matching safety-denylist.txt
+                           (advertising/recommender/telemetry; SAFETY-02)
+  safety_config_present    phosh installed ⇒ archmage-phosh-safety + the
+                           gschema.override and dconf lock files present
+                           (SAFETY-01/02; pass/not-applicable without phosh)
 
 Exit status: 0 iff all assertions pass.
 EOF
@@ -128,6 +148,8 @@ done
 PACMAN_CONF=$ROOTFS/etc/pacman.conf
 PACMAN_D=$ROOTFS/etc/pacman.d
 FW_DIRS=("$ROOTFS/usr/lib/firmware" "$ROOTFS/boot")
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+DENYLIST=$SCRIPT_DIR/safety-denylist.txt
 
 # --- assertion recording (same JSON style as test/lib/result.sh) ----------
 ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline.XXXXXX")
@@ -373,7 +395,94 @@ else
 fi
 record no_device_firmware_blobs "$fw_status" "$fw_details"
 
-rm -f "$ROWS_FILE" "$WHITELIST" "$FOUND"
+# --------------------------------------------------------------------------
+# 4) No advertising / recommender / telemetry components (SAFETY-02)
+# --------------------------------------------------------------------------
+# Package names come from the rootfs pacman local db (var/lib/pacman/
+# local/<dir>/desc %NAME%) — the same source as the firmware whitelist
+# above. Globs live in safety-denylist.txt next to this script (one bash
+# case pattern per line; # comments and blank lines ignored).
+PKG_NAMES=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-pkgs.XXXXXX")
+for dbdir in "$ROOTFS"/var/lib/pacman/local/*/; do
+    [ -f "$dbdir/desc" ] || continue
+    # desc shape: "%NAME%\n<pkgname>\n\n%VERSION%\n..." — first %NAME%
+    # block, first line, done.
+    awk '/^%NAME%$/{getline; print; exit}' "$dbdir/desc" \
+        >> "$PKG_NAMES" 2>/dev/null || true
+done
+sort -u "$PKG_NAMES" -o "$PKG_NAMES"
+pkg_count=$(wc -l < "$PKG_NAMES" | tr -d ' ')
+
+nr_status=pass
+nr_details=""
+nr_hits=0
+if [ ! -f "$DENYLIST" ]; then
+    nr_status=fail
+    nr_details="safety-denylist.txt not found next to the checker ($DENYLIST) — the no-recommender assertion cannot run"
+else
+    GLOBS=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-globs.XXXXXX")
+    grep -v '^[[:space:]]*#' "$DENYLIST" | sed '/^[[:space:]]*$/d' > "$GLOBS"
+    glob_count=$(wc -l < "$GLOBS" | tr -d ' ')
+    if [ "$glob_count" -eq 0 ]; then
+        nr_status=fail
+        nr_details="safety-denylist.txt has no active glob lines — the no-recommender assertion would be a no-op"
+    else
+        hits_list=""
+        while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
+            while IFS= read -r glob; do
+                [ -n "$glob" ] || continue
+                # shellcheck disable=SC2254  # the glob IS the point
+                case "$pkg" in
+                    $glob)
+                        nr_hits=$((nr_hits + 1))
+                        hits_list="${hits_list:+$hits_list; }$pkg (glob: $glob)"
+                        ;;
+                esac
+            done < "$GLOBS"
+        done < "$PKG_NAMES"
+        if [ "$nr_hits" -gt 0 ]; then
+            nr_status=fail
+            nr_details="recommender/advertising/telemetry packages present: $hits_list"
+        else
+            nr_details="$pkg_count package(s) in the local db checked against $glob_count safety-denylist glob(s); no hits"
+        fi
+    fi
+    rm -f "$GLOBS"
+fi
+record no_recommender_components "$nr_status" "$nr_details"
+
+# --------------------------------------------------------------------------
+# 5) Safety config present whenever phosh is (SAFETY-01/02 machine face)
+# --------------------------------------------------------------------------
+SAFETY_PKG=archmage-phosh-safety
+SAFETY_OVERRIDE=usr/share/glib-2.0/schemas/90_archmage-phosh-safety.gschema.override
+SAFETY_LOCK=etc/dconf/db/local.d/locks/archmage-safety
+
+sc_status=pass
+sc_details=""
+if grep -qx 'phosh' "$PKG_NAMES"; then
+    sc_missing=""
+    if ! grep -qx "$SAFETY_PKG" "$PKG_NAMES"; then
+        sc_missing="$SAFETY_PKG package not in the pacman local db"
+    fi
+    [ -f "$ROOTFS/$SAFETY_OVERRIDE" ] || \
+        sc_missing="${sc_missing:+$sc_missing; }/$SAFETY_OVERRIDE missing"
+    [ -f "$ROOTFS/$SAFETY_LOCK" ] || \
+        sc_missing="${sc_missing:+$sc_missing; }/$SAFETY_LOCK missing"
+    if [ -n "$sc_missing" ]; then
+        sc_status=fail
+        sc_details="phosh is installed but the safety layer is incomplete: $sc_missing"
+    else
+        sc_details="phosh installed; $SAFETY_PKG present with gschema.override and dconf lock files"
+    fi
+else
+    # No phosh in the local db (e.g. QEMU dev rootfs): nothing to enforce.
+    sc_details="not-applicable: no phosh package in the pacman local db ($pkg_count package(s) checked)"
+fi
+record safety_config_present "$sc_status" "$sc_details"
+
+rm -f "$ROWS_FILE" "$WHITELIST" "$FOUND" "$PKG_NAMES"
 
 # --------------------------------------------------------------------------
 # Assemble discipline.json (assertion-array style of test/lib/result.sh).

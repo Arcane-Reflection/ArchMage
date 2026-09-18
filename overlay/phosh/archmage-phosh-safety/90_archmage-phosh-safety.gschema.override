@@ -1,0 +1,7 @@
+# ArchMage phosh safety defaults (SAFETY-01/SAFETY-02, STRATEGY §5.7).
+# 锁屏的第一优先级永远是解锁与紧急呼叫:任何内容不得上锁屏。
+[org.gnome.desktop.screensaver]
+lock-enabled=true
+
+[org.gnome.desktop.notifications]
+show-in-lock-screen=false

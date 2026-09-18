@@ -1,0 +1,9 @@
+%NAME%
+fake-telemetry-agent
+
+%VERSION%
+1-0
+
+%DESC%
+NEGATIVE fixture package (02-03): telemetry-shaped name that must trip the
+no_recommender_components denylist assertion (*telemetry*).

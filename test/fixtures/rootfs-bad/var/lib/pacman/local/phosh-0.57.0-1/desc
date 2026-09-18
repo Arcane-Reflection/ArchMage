@@ -1,0 +1,9 @@
+%NAME%
+phosh
+
+%VERSION%
+0.57.0-1
+
+%DESC%
+NEGATIVE fixture package (02-03): phosh present in the local db WITHOUT
+archmage-phosh-safety or its config files — must trip safety_config_present.

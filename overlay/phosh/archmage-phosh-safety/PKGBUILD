@@ -1,0 +1,78 @@
+# Maintainer: ArchMage contributors
+#
+# Phosh safety overlay for ArchMage (SAFETY-01/SAFETY-02, STRATEGY §5.7):
+# 锁屏的第一优先级永远是解锁与紧急呼叫,任何内容不得上锁屏。
+#
+#   - gschema.override 出厂默认:screensaver lock-enabled=true;
+#     notifications show-in-lock-screen=false
+#   - dconf 机器默认(/etc/dconf/db/local.d/00-archmage-safety):同两键,
+#     经 system-db:local 生效
+#   - dconf 锁(/etc/dconf/db/local.d/locks/archmage-safety):只锁
+#     show-in-lock-screen 一个键;解锁后的横幅通知不受影响
+#
+# Overlay-only (STRATEGY §4):配置落在上游 phosh/glib 之上,depends 上游
+# dconf,fork 任何东西。对 phosh 的"弱依赖"由纪律检测器的
+# safety_config_present 断言表达(镜像里有 phosh ⇒ 本包必须在),此处
+# 不强绑,以便 QEMU/非 phosh rootfs 同样可装。
+#
+# /etc/dconf/profile/user 当前不被镜像内任何上游包持有,直接随包落地;
+# 若未来上游包开始持有该文件(镜像构建日志冲突即信号),改为 scriptlet
+# 追加 —— safety_config_present 断言会在每次镜像构建时兜底。
+
+pkgname=archmage-phosh-safety
+pkgver=1
+pkgrel=1
+pkgdesc='Phosh safety defaults for ArchMage: lockscreen always locks, never shows notification content (dconf-locked)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('dconf')
+install=archmage-phosh-safety.install
+source=('90_archmage-phosh-safety.gschema.override'
+        'dconf-profile-user'
+        'dconf-00-archmage-safety'
+        'dconf-locks-archmage-safety')
+sha256sums=('928fc09c00b0af10d8873103412e2bf5f4d3d021216b29573e9302d6f6c43dec'
+            'fae7504bccba59f5bb5f7fb74e2ba731609ecf40ae653ffbbaeafb1bfd53b9d3'
+            '23f7ee0fea7697a7938ba71f918b08a716370d36e2fba2ae18d4a2e22b4282dc'
+            '993df18a1d9cae13c0d24205e837b1c20affa1a0e8f7b51fe871b93e6d0f1e90')
+
+package() {
+    cd "$srcdir"
+    install -Dm644 90_archmage-phosh-safety.gschema.override \
+        "$pkgdir/usr/share/glib-2.0/schemas/90_archmage-phosh-safety.gschema.override"
+    install -Dm644 dconf-profile-user \
+        "$pkgdir/etc/dconf/profile/user"
+    install -Dm644 dconf-00-archmage-safety \
+        "$pkgdir/etc/dconf/db/local.d/00-archmage-safety"
+    install -Dm644 dconf-locks-archmage-safety \
+        "$pkgdir/etc/dconf/db/local.d/locks/archmage-safety"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage Phosh 安全默认(archmage-phosh-safety)
+================================================
+
+为什么锁 show-in-lock-screen(锁屏通知内容显示)
+------------------------------------------------
+
+锁屏的第一优先级永远是**解锁与紧急呼叫**(STRATEGY §5.7):锁屏上不
+允许出现任何内容推送——不是"默认关",而是 dconf 锁死(锁文件
+/etc/dconf/db/local.d/locks/archmage-safety),用户改不掉、系统更新也
+带不走。出厂断言 tools/checks/assert-shipping-discipline.sh 的
+safety_config_present 在每次镜像构建时检查本包与锁文件在位。
+
+解锁后的横幅通知**不受任何影响**:被锁的只有"内容上锁屏"这一个键,
+通知本体、横幅、声音都是用户可配置的正常行为。
+
+出厂默认的另一键:锁屏启用
+--------------------------
+
+org.gnome.desktop.screensaver lock-enabled=true——合盖/熄屏后必须经
+过解锁,这是"锁屏=解锁+紧急呼叫"语义的前提(未锁定的锁屏谈不上紧
+急呼叫入口)。
+
+紧急呼叫入口为 Phosh 原生(锁屏内置),本包不叠加任何锁屏组件——
+这正是"无覆盖层、一键可达"的机器面保证。
+EOF
+}

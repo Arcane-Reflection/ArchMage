@@ -1,0 +1,25 @@
+# archmage-phosh-safety install scriptlet (SAFETY-01/SAFETY-02)
+#
+# Compiles the glib schema cache (our gschema.override joins it) and
+# refreshes the dconf database (local.d defaults + locks take effect).
+# Both steps run only when the tool exists and are idempotent — image
+# builds execute these inside the target root, where glib2/dconf are
+# installed; a bare rootfs during package extraction simply skips them.
+
+post_install() {
+    _archmage_safety_configure
+}
+
+post_upgrade() {
+    _archmage_safety_configure
+}
+
+_archmage_safety_configure() {
+    if command -v glib-compile-schemas >/dev/null 2>&1 \
+      && [ -d /usr/share/glib-2.0/schemas ]; then
+        glib-compile-schemas /usr/share/glib-2.0/schemas || true
+    fi
+    if command -v dconf >/dev/null 2>&1; then
+        dconf update || true
+    fi
+}

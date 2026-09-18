@@ -1,0 +1,5 @@
+# dconf profile for the ArchMage safety defaults (SAFETY-01/SAFETY-02).
+# Standard GNOME/dconf wiring: user values win over the machine defaults
+# shipped under /etc/dconf/db/local.d/ (system-db:local).
+user-db:user
+system-db:local

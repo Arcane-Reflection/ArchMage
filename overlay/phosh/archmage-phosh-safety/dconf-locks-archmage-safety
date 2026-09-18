@@ -1,0 +1,4 @@
+# ArchMage dconf locks (SAFETY-01/SAFETY-02, STRATEGY §5.7).
+# 唯一被锁死的键:锁屏通知内容显示。锁屏上不允许出现任何内容推送
+# (用户改不掉、更新带不走);解锁后的横幅通知不受任何影响。
+/org/gnome/desktop/notifications/show-in-lock-screen

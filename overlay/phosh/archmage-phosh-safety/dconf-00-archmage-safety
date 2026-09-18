@@ -1,0 +1,9 @@
+# ArchMage phosh safety machine defaults (SAFETY-01/SAFETY-02, STRATEGY
+# §5.7): same two keys as the gschema.override, so the values hold in the
+# dconf system database as well. 锁屏只做解锁与紧急呼叫;通知内容不上
+# 锁屏。解锁后的横幅通知不受影响(未锁,见 locks/archmage-safety)。
+[org/gnome/desktop/screensaver]
+lock-enabled=true
+
+[org/gnome/desktop/notifications]
+show-in-lock-screen=false
