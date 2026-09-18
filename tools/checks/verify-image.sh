@@ -231,8 +231,16 @@ LOOP=$(losetup -Pf --show "$ROOTFS_IMG") || die "losetup -Pf failed for '$ROOTFS
 # Mount the first candidate that IS a rootfs (bare ext4 -> the loop device
 # itself; partitioned image -> one of its partitions). /etc/pacman.conf is
 # the rootfs detector.
+# NOTE: the partition glob must not run as a bare `ls ${LOOP}p*` pipeline:
+# on a partitionless image the glob fails, and under this script's `set -e`
+# the process-substitution subshell dies before the bare-loop fallback line
+# is printed — candidates ends up EMPTY and no mount is ever attempted
+# (reproduced on the qemu-x86_64 bare ext4 image). Iterate the glob safely
+# instead.
 mapfile -t candidates < <(
-    ls -1 "${LOOP}"p* 2>/dev/null | sort -V
+    for p in "${LOOP}"p*; do
+        [ -e "$p" ] && printf '%s\n' "$p"
+    done
     printf '%s\n' "$LOOP"
 )
 for cand in "${candidates[@]}"; do
