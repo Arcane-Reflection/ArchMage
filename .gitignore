@@ -20,3 +20,12 @@ test/fixtures/discipline.json
 
 # bootstrap/ kupferbootstrap working tree (images, pkgbuilds, caches)
 bootstrap/.work/
+
+# flash/op6 device backup archives (per-serial calibration data — NEVER commit)
+flash/op6/backups/
+
+# flash/op6 fetched/verified image cache (test bench bypass + fetch_image output)
+flash/op6/.work/
+
+# flash harness test bench results (mock logs, ephemeral gpg homes)
+flash/op6/tests/.results/
