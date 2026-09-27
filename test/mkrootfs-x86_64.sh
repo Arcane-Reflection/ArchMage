@@ -244,7 +244,8 @@ Architecture = x86_64
 # explicit per section below).
 SigLevel = Required DatabaseOptional
 NoProgressBar
-# Package cache on the repo mount (host-visible for reuse across runs).
+# Package cache lives on the repo mount (host-visible for reuse across
+# runs); this line is stripped before the file ships as /etc/pacman.conf.
 CacheDir = /work/test/build/x86_64/pacman-cache
 # The pacstrap transaction targets a throwaway build root; pacman 7's
 # sandbox is not reliably satisfiable under containerization (01-02
@@ -265,8 +266,10 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch
 #   1. the build-time checkout path (valid inside the build container,
 #      where the pacstrap transaction runs with pacman -r semantics)
 #   2. the copy embedded into the image at /var/lib/archmage/staging
-#      (valid inside the booted VM; pacman falls through server 1, whose
-#      path does not exist there)
+#      (valid inside the booted VM)
+# Server 1 and the CacheDir line are stripped at ship time (step 6), like
+# DisableSandbox — the shipped /etc/pacman.conf only carries paths that
+# exist inside the VM.
 SigLevel = Required
 Server = file:///work/test/build/staging-repo
 Server = file:///var/lib/archmage/staging
@@ -318,9 +321,13 @@ EOF
     sed -i 's/^root:[^:]*:/root:*:/' "$ROOTFS_DIR/etc/shadow"
 
     # 6) Ship the transaction config as /etc/pacman.conf WITHOUT the
-    #    throwaway-root sandbox exemption, and embed the staging repo so the
-    #    [archmage] Server is live inside the VM.
-    sed '/^[[:space:]]*DisableSandbox[[:space:]]*$/d' "$X86_64_DIR/pacman-install.conf" \
+    #    throwaway-root sandbox exemption, the build-time CacheDir, or the
+    #    build-time staging server; embed the repo copy so the [archmage]
+    #    Server is live inside the VM.
+    sed -e '/^[[:space:]]*DisableSandbox[[:space:]]*$/d' \
+        -e '/^CacheDir[[:space:]]*=/d' \
+        -e '\|^Server = file:///work/|d' \
+        "$X86_64_DIR/pacman-install.conf" \
         > "$ROOTFS_DIR/etc/pacman.conf"
     mkdir -p "$ROOTFS_DIR/var/lib/archmage"
     cp -a "$STAGING_DIR" "$ROOTFS_DIR/var/lib/archmage/staging"

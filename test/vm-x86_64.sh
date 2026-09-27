@@ -9,9 +9,8 @@
 #   test/vm-x86_64.sh --kernel vmlinuz --initrd initramfs --image img.raw
 #                       # direct-kernel boot bypass (no EFI firmware needed)
 #
-# The x86_64 image is a MANUAL input for now — a documented stub
-# (SKELETON): automated image builds via kupferbootstrap land in Phase 2.
-# Without --image the script prints acquisition guidance and exits
+# Without --image the script prints acquisition guidance (local build via
+# test/mkrootfs-x86_64.sh, CI artifact, or upstream pmOS image) and exits
 # non-zero.
 #
 # SSH into the booted image (when it runs sshd): the VM forwards
@@ -62,17 +61,23 @@ print_image_guidance() {
 
 No --image given (and ARCHMAGE_IMAGE is unset).
 
-The x86_64 image is a MANUAL input for now (documented stub; automated
-image builds land in Phase 2):
+The x86_64 image has three sources (fastest first):
 
-  1. postmarketOS ships ready-to-run generic x86_64 Phosh images:
+  1. Build it locally (native KVM speed; needs docker):
+       bash test/mkrootfs-x86_64.sh && bash test/smoke-x86_64.sh
+     The smoke leaves the booted image at test/build/x86_64/rootfs.img
+     (see --help there for the exact path).
+
+  2. Grab the CI-built dev image (public repo once pushed):
+       gh run download -n qemu-x86_64-image -D /tmp/img
+     (workflow: image.yml, job qemu-x86_64-image; the nightly Release
+     also carries it: xz + sha256 + sig)
+
+  3. postmarketOS generic x86_64 Phosh image (upstream comparison):
        https://images.postmarketos.org/genericx86/
      Download the latest Phosh image, decompress it:
        unxz postmarketos-*.raw.xz
      and pass the .raw to this script.
-
-  2. Or build an image with kupferbootstrap (Phase 2 will wire this into
-     the repo): https://kupfer.gitlab.io/kupferbootstrap/
 
 Then: test/vm-x86_64.sh --image /path/to/image.raw
       (or: export ARCHMAGE_IMAGE=/path/to/image.raw)
