@@ -1,0 +1,13 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux
+Target = linux-lts
+Target = linux-zen
+Target = linux-hardened
+
+[Action]
+Description = ArchMage: archive the current slot boot.img for the new kernel version (rollback closure, 03-03)
+When = PostTransaction
+Exec = /usr/bin/archmage-bootimg-store

@@ -1,0 +1,117 @@
+# Maintainer: ArchMage contributors
+#
+# Btrfs snapshot rollback machinery for ArchMage (UPDATE-01/UPDATE-02,
+# 03-03; overlay-only — 配置与脚本落在上游 snapper/snap-pac/grub-btrfs 之上,
+# 不 fork 任何上游包)。
+#
+#   - usr/share/archmage/btrfs-rollback/snapper-root.conf
+#     snapper root 配置模板:NUMBER_LIMIT=5、NUMBER_LIMIT_IMPORTANT=5、
+#     TIMELINE_CREATE=no —— UPDATE-01「快照封顶 5、timeline 关」的机器面。
+#     install scriptlet 在 btrfs 根上应用本模板(weak binding,见 .install)。
+#   - usr/bin/archmage-rollback
+#     OP6 侧回滚脚本:快照号 → snapper rollback 语义的可写克隆 → 设默认
+#     子卷 → 按 /var/lib/archmage/bootimg/<内核版本>.img 重写非活动槽
+#     boot 分区 → qbootctl 切槽。--dry-run 只打印命令序列。
+#     点名 PITFALLS 5:回滚只切子卷、不重写 boot.img = 启动的还是坏内核
+#     (内核在快照子卷之外,03-RESEARCH Q3)。
+#   - usr/bin/archmage-bootimg-store + usr/share/libalpm/hooks/
+#     90-archmage-bootimg-store.hook
+#     内核包 PostTransaction 时把当前槽 boot 分区存档到
+#     /var/lib/archmage/bootimg/<新内核版本>.img(位于 @var,不在快照内,
+#     存档天然跨回滚存活)。与 archmage-rollback 的「按快照内核版本取
+#     boot.img」互为闭环。
+#   - archmage-btrfs-scrub.{service,timer}
+#     月度 btrfs scrub(03-RESEARCH Q3 常规假设 A3 落件)。
+#
+# 依赖全部来自 Arch 官方源(snapper/snap-pac/btrfs-progs/file);qbootctl
+# 由 kupfer 仓库提供,列为 optdepends,缺席时 archmage-rollback 打印获取
+# 指引后退 1(退出码 2 已被 Phase 3 定义为 HUMAN_GATE_REQUIRED 专用)。
+
+pkgname=archmage-btrfs-rollback
+pkgver=1
+pkgrel=1
+pkgdesc='Btrfs snapshot rollback for ArchMage: snapper limits (cap 5, timeline off), OP6 boot.img-aware rollback, monthly scrub'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('snapper' 'snap-pac' 'btrfs-progs' 'file')
+optdepends=('qbootctl: OP6 A/B 槽切换(kupfer 仓库提供;缺席时脚本降级为 fastboot 指引)')
+install=archmage-btrfs-rollback.install
+source=('archmage-rollback'
+        'archmage-bootimg-store'
+        '90-archmage-bootimg-store.hook'
+        'snapper-root.conf'
+        'archmage-btrfs-scrub.service'
+        'archmage-btrfs-scrub.timer')
+sha256sums=('16660bed23e66c559e6b5f9fad2fb716a43cf2915a1f9830c827a44d1e03199a'
+            '76e67eb911032f2240768a668e837051b8c8b730900f84d43ce902fefed758f7'
+            'c6861addb559a1f46ff8cc442f8202910c6f3087d1114700c73035250b91a246'
+            '7dee1591e37fc760cdf1e260141079b5759a6b26721ea551691be51663b406ec'
+            'e1800e24e38155855a2618dde8fceccd4106a0f0a33fff60fa6776fcababc91d'
+            'dd07cfb69c5e978bc641d68db0a819a2958d992cd211ffa781cb3dbcfc9a39db')
+
+package() {
+    install -Dm755 archmage-rollback \
+        "$pkgdir/usr/bin/archmage-rollback"
+    install -Dm755 archmage-bootimg-store \
+        "$pkgdir/usr/bin/archmage-bootimg-store"
+    install -Dm644 90-archmage-bootimg-store.hook \
+        "$pkgdir/usr/share/libalpm/hooks/90-archmage-bootimg-store.hook"
+    install -Dm644 snapper-root.conf \
+        "$pkgdir/usr/share/archmage/btrfs-rollback/snapper-root.conf"
+    install -Dm644 archmage-btrfs-scrub.service \
+        "$pkgdir/usr/lib/systemd/system/archmage-btrfs-scrub.service"
+    install -Dm644 archmage-btrfs-scrub.timer \
+        "$pkgdir/usr/lib/systemd/system/archmage-btrfs-scrub.timer"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage btrfs 快照回滚(archmage-btrfs-rollback)
+==================================================
+
+机器面(UPDATE-01)
+------------------
+
+snapper root 配置模板 /usr/share/archmage/btrfs-rollback/snapper-root.conf:
+
+    NUMBER_LIMIT=5            # 数字快照封顶 5(PITFALLS 6:滚动更新的
+                              # pacman 事务一天 2+ 快照,eMMC 写寿命有限)
+    NUMBER_LIMIT_IMPORTANT=5
+    TIMELINE_CREATE=no        # timeline 快照关闭
+
+install scriptlet 在 btrfs 根(/ 的 FSTYPE 为 btrfs)且尚无 root 配置时
+应用模板并启用 snapper-cleanup.timer(限额真正的执行者);非 btrfs 根
+(CI 结构检查 rootfs、chroot 构建、未迁移的旧 rootfs)打印说明后退 0
+——弱绑定,与 02-03 safety 包同款:强制关系由 verify-image 的
+btrfs_layout 断言在镜像上表达。
+
+前提:布局是 pmbootstrap !2233 的平坦子卷布局(@ 为默认子卷、
+@snapshots 挂在 /.snapshots——快照存储在 @ 之外)。根挂载带 subvol=
+令牌时 snapper rollback 无效(BTRFS_IOC_DEFAULT_SUBVOL 被忽略,
+03-RESEARCH Q3「回滚语义陷阱」)。
+
+OP6 回滚(UPDATE-02)
+---------------------
+
+内核与 boot.img 都在快照子卷之外(OP6 = ABL + Android boot.img):
+**只切子卷不重写 boot.img,启动的仍是坏内核**(PITFALLS 5,本包点名
+防范)。因此回滚 = 三件事一起做:
+
+    1. snapper rollback 语义:从快照生成可写克隆,设为默认子卷;
+    2. 从 /var/lib/archmage/bootimg/<快照内核版本>.img 取对应的
+       boot.img,dd 写入 /dev/disk/by-partlabel/boot_<非活动槽>;
+    3. qbootctl 切槽重启。
+
+/usr/bin/archmage-rollback <快照号> 按此流程执行;--dry-run 只打印完整
+命令序列,不落任何盘。bootimg 存档由 90-archmage-bootimg-store.hook 在
+每次内核包事务后自动完成(经内核包自身的 boot-deploy 写入新 boot.img
+之后),两半互为闭环。
+
+非 OP6 环境(无 /dev/disk/by-partlabel/boot_a)下 archmage-rollback
+首行 stderr 打印 DEVICE_REQUIRED 后退 33(Phase 3 退出码契约);qbootctl
+缺席时打印 kupfer 仓库获取指引后退 1。退出码 2 属 HUMAN_GATE_REQUIRED
+专用,本包脚本不得挪用。
+
+维护者侧 stable 签名发布见 docs/REPO-CHANNELS.md(人工门禁,不入 CI)。
+EOF
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly btrfs scrub timer (ArchMage, 03-03)
+
+[Timer]
+OnCalendar=monthly
+# 关机错过的月度窗口,开机后补跑。
+Persistent=true
+
+[Install]
+WantedBy=timers.target

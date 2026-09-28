@@ -1,0 +1,9 @@
+[Unit]
+Description=Monthly btrfs scrub of the root filesystem (ArchMage, 03-03)
+# PITFALLS 6 / 03-RESEARCH Q3 常规假设 A3:bit-rot 靠 scrub 发现;数据块校验
+# 和在快照泛滥之前就该跑。只 scrub 根 btrfs 文件系统(LABEL=archmage-root
+# 挂载点 /)——-B 前台执行,配合 oneshot。
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/btrfs scrub start -B /

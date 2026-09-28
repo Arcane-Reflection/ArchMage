@@ -1,0 +1,171 @@
+#!/bin/bash
+# archmage-rollback — OP6 侧快照回滚(UPDATE-02;03-03 Task 2)。
+#
+# 用法:archmage-rollback <快照号> [--dry-run]
+#       --dry-run 只打印完整命令序列,不写任何盘(可审计)。
+#
+# 为什么要这个脚本(OP6 与 QEMU/GRUB 侧的根本差异):
+#   OP6 的引导链是 ABL + Android boot.img——内核与 initramfs 在 boot 分区
+#   里、在所有 btrfs 子卷之外。所以「切子卷默认」只会换 rootfs,**启动的
+#   仍是坏内核**(PITFALLS 5,03-RESEARCH Q3)。完整回滚必须三件事一起:
+#
+#     1. snapper rollback 语义:从快照生成可写克隆(snapper rollback 的
+#        等价原语),btrfs subvolume set-default 指向该克隆;
+#     2. 从 /var/lib/archmage/bootimg/<快照内核版本>.img 取该快照内核对应
+#        的 boot.img,dd 写入 /dev/disk/by-partlabel/boot_<非活动槽>;
+#     3. qbootctl -s <槽> 切槽并重启。
+#
+# bootimg 存档由 90-archmage-bootimg-store.hook(同包)在每次内核包事务
+# 后写入 /var/lib/archmage/bootimg(位于 @var,不在快照内,跨回滚存活)
+# ——两半互为闭环。
+#
+# 退出码契约(Phase 3,与 02-02 DEVICE_REQUIRED 同构):
+#   0   成功(--dry-run 打印序列后也退 0)
+#   1   一般失败(qbootctl 缺席等;指引打印在 stderr)
+#   2   HUMAN_GATE_REQUIRED 专用——本脚本不得挪用
+#   33  DEVICE_REQUIRED:非 OP6 环境(无 /dev/disk/by-partlabel/boot_a),
+#       首行 stderr 输出 DEVICE_REQUIRED: ...
+#
+# dd 安全(T-03-24):只认 /dev/disk/by-partlabel 固定标签;boot_a 在位性
+# 守卫(33);写槽前打印槽位名;--dry-run 全序列可审。
+
+set -u
+
+PROGRAM=$(basename "$0")
+
+usage() {
+    cat <<EOF
+用法: $PROGRAM <快照号> [--dry-run]
+
+  <快照号>    snapper root 配置的快照编号(snapper -c root list 查看)
+  --dry-run   只打印将要执行的完整命令序列,不落盘
+
+OP6 侧回滚三步:可写克隆 + 设默认子卷 → 按快照内核版本重写非活动槽
+boot 分区 → qbootctl 切槽。详见 /usr/share/doc/$PROGRAM*/README。
+EOF
+}
+
+die() {
+    printf 'ERROR(%s): %s\n' "$PROGRAM" "$*" >&2
+    exit 1
+}
+
+# --- 33/DEVICE_REQUIRED 守卫在最前(先于参数解析,非 OP6 环境物理不可达)--
+BOOT_A=/dev/disk/by-partlabel/boot_a
+if [ ! -e "$BOOT_A" ]; then
+    printf 'DEVICE_REQUIRED: archmage-rollback only runs on an OP6-class device (/dev/disk/by-partlabel/boot_a not found).\n'
+    printf 'DEVICE_REQUIRED: on a non-OP6 host this script is physically unreachable by design (T-03-24); the QEMU/GRUB rollback path is test/rollback-x86_64.sh.\n'
+    exit 33
+fi
+
+SNAPSHOT=""
+DRY_RUN=no
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=yes ;;
+        -h|--help) usage; exit 0 ;;
+        '')
+            ;;
+        *)
+            if [ -n "$SNAPSHOT" ]; then
+                usage >&2
+                die "unexpected argument: $arg"
+            fi
+            case "$arg" in
+                *[!0-9]*|'') usage >&2; die "snapshot number must be a non-negative integer, got '$arg'" ;;
+            esac
+            SNAPSHOT=$arg
+            ;;
+    esac
+done
+[ -n "$SNAPSHOT" ] || { usage >&2; die "a snapshot number is required (snapper -c root list)"; }
+
+# --- 工具与状态 ---------------------------------------------------------------
+command -v snapper >/dev/null 2>&1 || die "snapper not found (pacman -S snapper)"
+command -v btrfs >/dev/null 2>&1 || die "btrfs-progs not found (pacman -S btrfs-progs)"
+command -v file >/dev/null 2>&1 || die "file not found (pacman -S file)"
+
+if ! command -v qbootctl >/dev/null 2>&1; then
+    cat >&2 <<'EOF'
+ERROR: qbootctl 未安装 —— OP6 A/B 槽切换依赖它(kupfer 仓库提供):
+  https://git.sr.ht/~calebccff/qbootctl (kupfer/bootstrap 源;或
+  kupfer 的 aarch64 仓库直接安装 qbootctl 包)
+  安装后重试;没有 qbootctl 时本脚本拒绝执行(退出码 1)。
+  一次性应急引导替代:`fastboot boot <boot.img>`(adb/fastboot 均在
+  android-tools 包),但那不是持久回滚。
+EOF
+    exit 1
+fi
+
+# snapper 快照路径:/@snapshots/<N>/snapshot(绝对路径形式)。
+SNAP_DIR=$(snapper -c root get-config SUBVOLUME 2>/dev/null)
+SNAP_DIR=${SNAP_DIR:-/}
+SNAP_PATH="/.snapshots/$SNAPSHOT/snapshot"
+if ! btrfs subvolume show "$SNAP_PATH" >/dev/null 2>&1; then
+    die "snapshot $SNAPSHOT not found at $SNAP_PATH (snapper -c root list?)"
+fi
+
+# 快照的内核版本(file(1) 读 vmlinuz 的 version 横幅,与 uname -r 同源)。
+KVER=$(file -b "$SNAP_PATH/boot/vmlinuz-linux" 2>/dev/null |
+    sed -n 's/.*version \([^ ,;]*\).*/\1/p')
+[ -n "$KVER" ] || die "cannot read the kernel version banner from $SNAP_PATH/boot/vmlinuz-linux"
+
+BOOTIMG=/var/lib/archmage/bootimg/"$KVER".img
+if [ ! -s "$BOOTIMG" ]; then
+    cat >&2 <<EOF
+ERROR: 没有 $KVER 对应的 boot.img 存档($BOOTIMG)。
+  90-archmage-bootimg-store.hook 会在每次内核包事务后存档;若该内核版本
+  是在本包安装之前进入设备的,没有历史存档——只能 fastboot flash boot
+  手动恢复,或改回有存档的快照。
+EOF
+    exit 1
+fi
+
+# 当前槽:qbootctl 读取失败时回落到内核 cmdline 的 androidboot.slot_suffix。
+CURRENT_SLOT=$(qbootctl 2>/dev/null | sed -n 's/.*current slot: *_\?\([ab]\).*/\1/p' | head -1)
+if [ -z "$CURRENT_SLOT" ]; then
+    CURRENT_SLOT=$(sed -n 's/.*androidboot.slot_suffix=_\([ab]\).*/\1/p' /proc/cmdline)
+fi
+case "$CURRENT_SLOT" in
+    a|b) ;;
+    *) die "cannot determine the current slot (qbootctl / androidboot.slot_suffix)" ;;
+esac
+INACTIVE_SLOT=$([ "$CURRENT_SLOT" = a ] && echo b || echo a)
+BOOT_PART=/dev/disk/by-partlabel/boot_"$INACTIVE_SLOT"
+
+NEW_DEFAULT="@snapshots-rollback-$SNAPSHOT"   # 可写克隆(toplevel 下)
+
+echo "archmage-rollback: snapshot $SNAPSHOT (kernel $KVER), current slot _$CURRENT_SLOT -> activate _$INACTIVE_SLOT"
+
+# --- 命令序列(真实执行或 --dry-run 打印)------------------------------------
+run() {
+    if [ "$DRY_RUN" = yes ]; then
+        printf '+ %s\n' "$*"
+    else
+        printf '+ %s\n' "$*"
+        "$@"
+    fi
+}
+
+# 1) snapper rollback 语义:可写克隆 + 设默认子卷。
+#    (等价于 snapper -c root rollback,但显式落在 toplevel 的具名克隆,
+#    便于审计与再回滚;克隆从 toplevel 挂载点创建。)
+run sh -c "
+    mkdir -p /mnt/archmage-top
+    mount -o subvolid=5 \$(findmnt -n -o SOURCE / | sed 's/\\[.*\\]\$//') /mnt/archmage-top &&
+    btrfs subvolume snapshot '$SNAP_PATH' '/mnt/archmage-top/$NEW_DEFAULT' &&
+    btrfs subvolume set-default '/mnt/archmage-top/$NEW_DEFAULT' &&
+    umount /mnt/archmage-top"
+
+# 2) 快照内核的 boot.img → 非活动槽(写槽前打印槽位名;T-03-24)。
+run sh -c "dd if='$BOOTIMG' of='$BOOT_PART' bs=4M conv=fsync status=progress   # boot_$INACTIVE_SLOT <- $BOOTIMG"
+
+# 3) 切槽并重启。
+run qbootctl -s "$INACTIVE_SLOT"
+run sh -c "sync && reboot"
+
+if [ "$DRY_RUN" = yes ]; then
+    echo "archmage-rollback: --dry-run complete — nothing was written."
+    exit 0
+fi
+echo "archmage-rollback: done — rebooting into slot _$INACTIVE_SLOT (kernel $KVER)."

@@ -1,0 +1,69 @@
+#!/bin/bash
+# archmage-bootimg-store — 90-archmage-bootimg-store.hook 的执行体
+# (UPDATE-02 闭环的存档半边;03-03 Task 2)。
+#
+# 内核包事务的 PostTransaction 时点,把当前槽 boot 分区 dd 存档到
+# /var/lib/archmage/bootimg/<新内核版本>.img:
+#   - 位于 @var —— 不在任何快照内,存档天然跨回滚存活;
+#   - 与 archmage-rollback 的「按快照内核版本取 boot.img」互为闭环
+#     (PITFALLS 5:回滚只切子卷、不重写 boot.img = 启动的还是坏内核;
+#     03-RESEARCH Q3:内核在子卷外,回滚必须同步重写 boot.img);
+#   - 时点假设:内核包自身的 boot-deploy 钩子已在本事务内把新 boot.img
+#     写入 boot 分区(kupfer/pmOS boot-deploy 流),故此刻盘上是新内核的
+#     boot.img,按新内核版本命名。若设备引导流延后刷写,存档内容会在
+#     下一次 hook 命中时被同版本刷新;同版本存档不覆盖(幂等)。
+#
+# 安全:非 OP6 环境(无 boot_a partlabel)静默 exit 0;hook 永远不让
+# pacman 事务失败(所有错误路径 exit 0,细节留给日志)。
+
+BOOT_A=/dev/disk/by-partlabel/boot_a
+STORE_DIR=/var/lib/archmage/bootimg
+LOG_TAG=archmage-bootimg-store
+
+log() { printf '%s: %s\n' "$LOG_TAG" "$*" >&2 || true; }
+
+# 非 OP6 环境:静默退出(qemu-x86_64、CI 结构检查 rootfs 等)。
+[ -e "$BOOT_A" ] || exit 0
+command -v file >/dev/null 2>&1 || { log "file(1) missing, cannot version the archive"; exit 0; }
+command -v dd >/dev/null 2>&1 || exit 0
+
+mkdir -p "$STORE_DIR" 2>/dev/null || { log "cannot create $STORE_DIR"; exit 0; }
+
+# 新内核版本:PostTransaction 时 /boot/vmlinuz-linux 已是新内核,读它的
+# version 横幅(与 uname -r 同源;file(1) 支持 x86 bzImage 与 arm64 Image)。
+KVER=$(file -b /boot/vmlinuz-linux 2>/dev/null |
+    sed -n 's/.*version \([^ ,;]*\).*/\1/p')
+if [ -z "$KVER" ]; then
+    log "cannot read the kernel version banner from /boot/vmlinuz-linux"
+    exit 0
+fi
+
+ARCHIVE=$STORE_DIR/"$KVER".img
+if [ -s "$ARCHIVE" ]; then
+    log "archive for $KVER already exists, not overwriting: $ARCHIVE"
+    exit 0
+fi
+
+# 当前槽:qbootctl 优先,回落内核 cmdline 的 androidboot.slot_suffix。
+CURRENT_SLOT=$(qbootctl 2>/dev/null |
+    sed -n 's/.*current slot: *_\?\([ab]\).*/\1/p' | head -1)
+[ -n "$CURRENT_SLOT" ] ||
+    CURRENT_SLOT=$(sed -n 's/.*androidboot.slot_suffix=_\([ab]\).*/\1/p' /proc/cmdline)
+case "$CURRENT_SLOT" in
+    a|b) ;;
+    *) log "cannot determine the current slot; no archive written"; exit 0 ;;
+esac
+
+BOOT_PART=/dev/disk/by-partlabel/boot_"$CURRENT_SLOT"
+if [ ! -e "$BOOT_PART" ]; then
+    log "boot partition $BOOT_PART not found"
+    exit 0
+fi
+
+if dd if="$BOOT_PART" of="$ARCHIVE" bs=4M conv=fsync 2>/dev/null; then
+    log "archived $BOOT_PART (slot _$CURRENT_SLOT) -> $ARCHIVE"
+else
+    rm -f "$ARCHIVE" 2>/dev/null || true
+    log "dd failed; partial archive removed"
+fi
+exit 0

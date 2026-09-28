@@ -1,0 +1,100 @@
+# archmage-btrfs-rollback install scriptlet (UPDATE-01 machine face, 03-03).
+#
+# 弱绑定(与 02-03 safety 包同款):
+#   - 根不是 btrfs(CI 结构检查 rootfs、chroot/pacstrap 构建环境、未迁移
+#     的旧 rootfs)→ 打印说明后 exit 0;
+#   - 根是 btrfs 且尚无 snapper root 配置 → 应用随包模板限额
+#     (NUMBER_LIMIT=5、NUMBER_LIMIT_IMPORTANT=5、TIMELINE_CREATE=no)
+#     并启用 snapper-cleanup.timer(限额真正的执行者);
+#   - 已有 root 配置 → 幂等退出,不覆盖管理员配置。
+#
+# scriptlet 必须容忍 pacstrap/pacman -r 的 chroot 环境:chroot 里 findmnt
+# 看到的 / 是构建容器的文件系统,不是目标根 → 自然落入弱绑定分支。
+#
+# 布局前提(pmbootstrap !2233 平坦子卷布局):@snapshots 子卷挂载于
+# /.snapshots —— 快照存储在 @ 之外,回滚替换 @ 时快照库不受影响。
+# snapper create-config 拒绝已存在的 /.snapshots(它想自建子卷,而那会把
+# 快照库放进 @,违反布局不变量)。此处的处理与 test/rollback-x86_64.sh 的
+# 舞步一致:让 snapper 建配置 → 删除它自建的 /.snapshots 子卷 → 恢复
+# 我们的挂载 → 以模板覆盖限额。
+
+post_install() {
+    _archmage_btrfs_rollback_configure
+}
+
+post_upgrade() {
+    _archmage_btrfs_rollback_configure
+}
+
+_archmage_btrfs_rollback_configure() {
+    local fstype
+    fstype=$(findmnt -n -o FSTYPE / 2>/dev/null || true)
+    if [ "$fstype" != "btrfs" ]; then
+        printf 'archmage-btrfs-rollback: root is not btrfs (FSTYPE=%s) — snapshot machinery left unconfigured (weak binding; on-device btrfs roots get snapper root config with NUMBER_LIMIT=5 / TIMELINE_CREATE=no).\n' "${fstype:-<none>}"
+        return 0
+    fi
+
+    # pacstrap/pacman -r run this scriptlet CHROOT'd into the target root:
+    # there findmnt sees the TARGET's btrfs (not the build container's fs as
+    # the comment above assumed — pacman chroots, so / IS the target root),
+    # and pacstrap even binds /proc into the chroot, so a /proc/self probe
+    # does NOT discriminate (observed live: the first cut of this guard
+    # sailed through pacstrap's proc-bound chroot and died in create-config
+    # with "configure manually"). The reliable test for "a real running
+    # installation" is systemd's own runtime directory: present on every
+    # booted system (on-device post_upgrade, in-VM pacman -Syu), absent in
+    # every chroot. No booted system ⇒ configure nothing here: the btrfs dev
+    # image's snapper config is created in-VM by test/rollback-x86_64.sh,
+    # and a real device's config appears at the first on-device package
+    # upgrade (post_upgrade runs under systemd there).
+    if [ ! -d /run/systemd/system ]; then
+        printf 'archmage-btrfs-rollback: chroot (pacstrap/pacman -r) — snapshot machinery left unconfigured (weak binding; run "snapper -c root create-config /" on the running system).\n'
+        return 0
+    fi
+
+    if [ -e /etc/snapper/configs/root ]; then
+        printf 'archmage-btrfs-rollback: snapper root config already present — keeping the administrator configuration.\n'
+        return 0
+    fi
+
+    command -v snapper >/dev/null 2>&1 || {
+        printf 'archmage-btrfs-rollback: snapper missing — install snapper and re-run "snapper -c root create-config /".\n'
+        return 0
+    }
+
+    local had_mount=no
+    if mountpoint -q /.snapshots 2>/dev/null; then
+        had_mount=yes
+        umount /.snapshots || {
+            printf 'archmage-btrfs-rollback: cannot unmount /.snapshots — configure snapper manually (see /usr/share/archmage/btrfs-rollback/snapper-root.conf).\n'
+            return 0
+        }
+    fi
+
+    if snapper -c root create-config /; then
+        # 舞步:snapper 自建的 /.snapshots 子卷位于 @ 之内(违反「快照在
+        # @ 之外」不变量)——删除它,恢复我们的 @snapshots 挂载。
+        btrfs subvolume delete /.snapshots 2>/dev/null || true
+        rmdir /.snapshots 2>/dev/null || true
+        mkdir -p /.snapshots
+        if [ "$had_mount" = yes ]; then
+            mount /.snapshots 2>/dev/null || true
+        fi
+        # 应用随包模板限额(UPDATE-01 机器面)。
+        if install -Dm644 /usr/share/archmage/btrfs-rollback/snapper-root.conf \
+            /etc/snapper/configs/root 2>/dev/null; then
+            printf 'archmage-btrfs-rollback: snapper root config applied from the packaged template (NUMBER_LIMIT=5, NUMBER_LIMIT_IMPORTANT=5, TIMELINE_CREATE=no).\n'
+        else
+            snapper -c root set-config NUMBER_LIMIT=5 NUMBER_LIMIT_IMPORTANT=5 TIMELINE_CREATE=no 2>/dev/null || true
+            printf 'archmage-btrfs-rollback: snapper root config created with template limits via set-config.\n'
+        fi
+        # 限额的执行者:数字快照清理定时器。
+        systemctl enable snapper-cleanup.timer >/dev/null 2>&1 || true
+    else
+        if [ "$had_mount" = yes ]; then
+            mount /.snapshots 2>/dev/null || true
+        fi
+        printf 'archmage-btrfs-rollback: snapper -c root create-config failed — configure manually (see /usr/share/archmage/btrfs-rollback/snapper-root.conf).\n'
+    fi
+    return 0
+}

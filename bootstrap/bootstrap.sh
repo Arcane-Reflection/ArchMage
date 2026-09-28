@@ -199,7 +199,11 @@ assert 'archmage-cn' in build_prof.get('pkgs_exclude', []), 'build profile must 
 # 02-03: every staging-repo overlay in pkgs_include must ride the same
 # two-stage design (stage-1 exclude + stage-2 verified install), otherwise
 # the keyring-less kbs transaction would fail or the package never lands.
-OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn')
+# 03-03: archmage-btrfs-rollback rides the same pattern (its install
+# scriptlet weak-binds to btrfs roots, so the ext4 kbs rootfs simply skips
+# the snapper configuration — verified by verify-image's btrfs_layout gate
+# on the x86_64 btrfs image instead).
+OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn', 'archmage-btrfs-rollback')
 for overlay in OVERLAYS:
     assert overlay in prof['pkgs_include'], f'pkgs_include lost {overlay}'
     assert overlay in build_prof.get('pkgs_exclude', []), \
@@ -253,13 +257,18 @@ normalize_staging() {
     server_dir=$root
     [ -z "$STAGING_REL" ] || server_dir=$root/$STAGING_REL
     # pacman>=6 requests the extensionless <repo>.db first; symlink both the
-    # canonical and legacy names to the artifact's zst database.
+    # canonical and legacy names to the artifact's zst database. 03-03
+    # two-channel: the shipped /etc/pacman.conf declares [archmage-testing]
+    # (the CI staging channel), and pacman requests <section>.db per section
+    # name — so the testing-channel DB name is provided alongside.
     ln -sfn cn.db.tar.zst "$server_dir/archmage.db"
     [ -s "$server_dir/cn.db.tar.zst.sig" ] && ln -sfn cn.db.tar.zst.sig "$server_dir/archmage.db.sig" || true
+    ln -sfn cn.db.tar.zst "$server_dir/archmage-testing.db"
+    [ -s "$server_dir/cn.db.tar.zst.sig" ] && ln -sfn cn.db.tar.zst.sig "$server_dir/archmage-testing.db.sig" || true
     if grep -q '^EPHEMERAL: yes' "$(find "$root" -maxdepth 4 -name FINGERPRINT.txt -print -quit)" 2>/dev/null; then
         archmage_warn "staging artifact was signed with an EPHEMERAL run key (GPG_PRIVATE_KEY secret not configured). It is still consumed for this image build, but signatures only prove the run's own integrity, not ArchMage provenance — configure the persistent staging key."
     fi
-    archmage_info "staging server dir: ${STAGING_REL:-<flat root>} (archmage.db -> cn.db.tar.zst)"
+    archmage_info "staging server dir: ${STAGING_REL:-<flat root>} (archmage.db + archmage-testing.db -> cn.db.tar.zst)"
 }
 
 # ---------------------------------------------------------------------------
@@ -460,20 +469,21 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
 [aur]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
 
-[archmage]
-# ArchMage staging repo (packages.yml CI artifact): strictest level —
-# package signatures Required; no weaker database token, so the signed
-# database is verified as well.
+[archmage-testing]
+# ArchMage testing channel (= the packages.yml CI staging artifact; 03-03
+# two-channel model): strictest level — package signatures Required; no
+# weaker database token, so the signed database is verified as well.
 SigLevel = Required
 Server = $stage2_server
 EOF
-    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn (SigLevel Required, signed DB verified)"
+    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback (SigLevel Required, signed DB verified)"
     mkdir -p "$KBS_CACHE/pacman-image-cache"
     # Keep this list identical to the canonical profile's pkgs_include in
     # archmage.toml (bootstrap.sh --check asserts the two stay in sync).
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
-        --noconfirm --needed -Sy archmage-cn archmage-phosh-safety archmage-cn-apn
+        --noconfirm --needed -Sy archmage-cn archmage-phosh-safety \
+        archmage-cn-apn archmage-btrfs-rollback
 
     # 7) Stage 3 — harden the shipped /etc/pacman.conf.
     archmage_info "stage 3: hardening shipped /etc/pacman.conf"
@@ -506,15 +516,43 @@ for line in lines:
 assert '[archmage]' not in out, 'shipped pacman.conf already has an [archmage] section?'
 out += [
     '',
-    '# ArchMage staging repo: package signatures Required; no weaker database',
-    '# token, so the signed database is verified as well. The file:// Server',
-    '# records the build-time staging source; hosted-mirror configuration is',
-    '# owned by the image publishing step (02-02/02-03).',
-    '[archmage]',
+    '# ArchMage testing channel (= CI staging; 03-03 two-channel model):',
+    '# package signatures Required; no weaker database token, so the signed',
+    '# database is verified as well. The file:// Server records the build-time',
+    '# staging source; hosted-mirror configuration is owned by the image',
+    '# publishing step (02-02/02-03).',
+    '[archmage-testing]',
     'SigLevel = Required',
     f'Server = {archmage_server}',
+    '',
+    '# ArchMage stable channel (human-signed; docs/REPO-CHANNELS.md): ships',
+    '# COMMENTED — stable is produced only by the maintainer-host signing',
+    '# ceremony, never by CI. Enable it after filling',
+    '# /etc/pacman.d/archmage/channels/stable.conf with the hosted Server.',
+    '#[archmage-stable]',
+    '#SigLevel = Required',
+    '#Include = /etc/pacman.d/archmage/channels/stable.conf',
 ]
 open(conf_path, 'w').write('\n'.join(out) + '\n')
+
+# Channel Include files ship pre-created (03-03): testing.conf documents the
+# active channel, stable.conf ships with an EMPTY server list — it is filled
+# in by the admin at switch time (docs/REPO-CHANNELS.md §5).
+import os
+chan_dir = os.path.join(os.path.dirname(conf_path), 'pacman.d/archmage/channels')
+os.makedirs(chan_dir, exist_ok=True)
+with open(os.path.join(chan_dir, 'testing.conf'), 'w') as f:
+    f.write(
+        '# [archmage-testing] channel servers(active by default)。\n'
+        '# 出厂镜像经 /etc/pacman.conf 的 Server 行消费内嵌 staging 副本;\n'
+        '# testing 通道托管化后,在此追加托管镜像的 Server 行。\n')
+with open(os.path.join(chan_dir, 'stable.conf'), 'w') as f:
+    f.write(
+        '# [archmage-stable] channel servers(切换时由管理员填写)。\n'
+        '# 出厂态刻意为空:stable 通道只在人工签名仪式(docs/REPO-CHANNELS.md)\n'
+        '# 之后才存在。启用方法:在此填 Server 行,再到 /etc/pacman.conf 取消\n'
+        '# [archmage-stable] 段的注释。SigLevel Required 纪律两个通道都不放松。\n'
+        '# Server = https://<stable-mirror>/<path>\n')
 
 # Post-conditions.
 final = open(conf_path).read()
@@ -528,8 +566,9 @@ for line in final.splitlines():
         never_secs.append(sec)
 bad = [s for s in never_secs if s not in KUPFER_SECTIONS]
 assert not bad, f'non-kupfer sections still carry SigLevel Never: {bad}'
-assert '[archmage]' in final, '[archmage] section missing after hardening'
-print('shipped pacman.conf hardened: ALARM sections on Required DatabaseOptional, [archmage] appended at Required')
+assert '[archmage-testing]' in final, '[archmage-testing] section missing after hardening'
+assert '#[archmage-stable]' in final, 'commented [archmage-stable] block missing after hardening'
+print('shipped pacman.conf hardened: ALARM sections on Required DatabaseOptional, [archmage-testing] active + [archmage-stable] shipped commented at Required')
 PYEOF
 
     # 8) Extract the Android boot image from the boot partition (the
