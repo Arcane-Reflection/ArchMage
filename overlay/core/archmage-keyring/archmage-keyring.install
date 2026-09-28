@@ -1,0 +1,12 @@
+# archmage-keyring install scriptlet (UPDATE-03, 03-03 Task 3).
+# pacman-key --populate 导入 /usr/share/pacman/keyrings/archmage.gpg 并对
+# archmage-trusted 清单里的指纹 lsign(ultimate trust)—— 客户端从此对
+# ArchMage 双通道的 SigLevel Required 校验零手工步骤。
+
+post_install() {
+    pacman-key --populate archmage
+}
+
+post_upgrade() {
+    pacman-key --populate archmage
+}

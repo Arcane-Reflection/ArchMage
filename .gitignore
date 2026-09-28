@@ -18,6 +18,11 @@ test/results/
 # discipline checker default output when run against the rootfs-bad fixture
 test/fixtures/discipline.json
 
+# archmage-keyring: the stable public keyring is ceremony output
+# (tools/repo/export-keyring.sh on the maintainer host) — never committed
+# pre-ceremony, never in any automation (docs/REPO-CHANNELS.md)
+overlay/core/archmage-keyring/archmage.gpg
+
 # bootstrap/ kupferbootstrap working tree (images, pkgbuilds, caches)
 bootstrap/.work/
 

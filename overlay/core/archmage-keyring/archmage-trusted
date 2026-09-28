@@ -1,0 +1,5 @@
+# ArchMage stable channel signing key(s) — produced by tools/repo/export-keyring.sh
+# during the offline key ceremony (docs/REPO-CHANNELS.md). pacman-key --populate
+# archmage marks these fingerprints ultimately trusted.
+# (Empty until the signing ceremony exports the stable key — the ceremony is a
+# maintainer-host action, never automated; see docs/REPO-CHANNELS.md.)

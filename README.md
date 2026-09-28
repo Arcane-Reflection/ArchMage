@@ -182,6 +182,18 @@ virtio 存储/网络 + virtio-vga + usb-tablet,内存 4096M,SSH 转发仅绑 `12
 
 **镜像获取(Phase 1 的 SKELETON 手动取像 stub 已由 02-01 关闭)**:官方来源是 nightly Release 的 x86_64 开发镜像(上节「镜像发布」的取像命令;`test/mkrootfs-x86_64.sh` 亦可本地从 staging 仓库构建等价镜像)。`vm-x86_64.sh` 代码未变,`--image` 直接传入解压出的 raw 镜像即可;未提供镜像时脚本仍打印取像指引并以非零退出,postmarketOS 通用镜像仍可作为临时替代。
 
+### x86_64 快照回滚用例(03-03,btrfs 平坦布局镜像)
+
+```bash
+bash test/rollback-x86_64.sh --repo-dir test/build/staging-repo --timeout 900
+```
+
+一条命令完成:构建 btrfs 平坦子卷布局 dev 镜像(`@ / @root / @var(nodatacow) / @snapshots / @srv / @tmp`,根以默认子卷挂载)→ 纯 GRUB 路径启动(OVMF → ESP fallback loader)→ snap-pac 事务快照(封顶 5、timeline 关)→ 破坏默认条目(`rm /boot/vmlinuz-linux`)→ `grub-reboot` 一次性引导进快照 → 断言内核回到破坏前版本 → `snapper rollback` 恢复默认子卷。结果写入 `test/results/<ts>/rollback.json`(`tier: "qemu"` —— QEMU 绿 ≠ 真机绿;OP6 侧 A/B 槽回滚由 `archmage-btrfs-rollback` 包的 `archmage-rollback` 在真机执行,33/DEVICE_REQUIRED 约定顺延)。需要 KVM(`/dev/kvm` 不可写时首行 stderr 输出 `KVM_REQUIRED:` 并退 34;唯一豁免是 `ARCHMAGE_QEMU_ALLOW_TCG=1` + 更大 `--timeout`)。
+
+## 双通道仓库与 stable 签名(UPDATE-03)
+
+镜像出厂带两个 ArchMage 通道:`[archmage-testing]` 生效(SigLevel Required,CI staging 工件)+ `[archmage-stable]` 注释态预置。staging 工件泡 3–7 天、经人工 review 后,由维护者在**本机**(永不进 CI)执行 stable 签名发布:`tools/repo/promote-staging.sh --real`(逐包 detach-sign + `repo-add -s --include-sigs -k`);keyring 信任锚经离线 key ceremony 产出(`tools/repo/export-keyring.sh` → `archmage-keyring` 包)。完整仪式、密钥介质纪律与客户端切换方法见 **[docs/REPO-CHANNELS.md](docs/REPO-CHANNELS.md)** —— 脚本只做可机械验证的部分,签名动作永远在人手里。
+
 ## 命名与商标
 
 - **ArchMage**(法师帽 × Arch 三角)是独立社区项目,**不是** Arch Linux 官方产品;本项目基于 [Arch Linux ARM](https://archlinuxarm.org) 与 danctnix/kupferbootstrap/pmaports 等上游构建("derived from Arch Linux")。

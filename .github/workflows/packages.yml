@@ -98,13 +98,22 @@ jobs:
 
           # Map changed files to overlay/<repo-group>/<pkg>/ directories
           # (top-level package dirs only; one package = one directory).
+          # A package dir carrying .ci-defer is excluded: its sources are
+          # ceremony outputs not present in the repo yet (currently
+          # archmage-keyring, whose archmage.gpg is produced by the offline
+          # signing ceremony — docs/REPO-CHANNELS.md). Delete the marker
+          # when the sources exist; the package then rides the normal flow.
           pkgs=()
           for f in "${changed[@]}"; do
             case "$f" in
               overlay/*/*)
                 d="overlay/$(printf '%s' "$f" | cut -d/ -f2,3)"
                 if [ -f "$d/PKGBUILD" ]; then
-                  pkgs+=("$d")
+                  if [ -f "$d/.ci-defer" ]; then
+                    echo "::notice::$d carries .ci-defer — excluded from the staging build ($(head -n1 "$d/.ci-defer"))"
+                  else
+                    pkgs+=("$d")
+                  fi
                 fi
                 ;;
             esac

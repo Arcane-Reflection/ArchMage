@@ -1,0 +1,61 @@
+# Maintainer: ArchMage contributors
+#
+# ArchMage pacman keyring(UPDATE-03 双通道仓库的信任锚,03-03 Task 3;
+# 仿 archlinuxcn-keyring 模式):
+#   - /usr/share/pacman/keyrings/archmage.gpg       stable 签名公钥集合
+#   - /usr/share/pacman/keyrings/archmage-trusted   populate 信任指纹清单
+#
+# archmage.gpg 由人工签名仪式产出(tools/repo/export-keyring.sh,维护者
+# 宿主机上执行;docs/REPO-CHANNELS.md)。仓库提交态在仪式前不含该文件
+# —— 这不是桩,而是「密钥不进自动化」的机械表达:.gitignore 锁定 +
+# .ci-defer 把本包挡在 CI staging 构建之外,仪式产出密钥后由维护者
+# 删除 .ci-defer 提交,CI 才开始分发本包(经 testing/stable 自更新路径
+# 见 docs/REPO-CHANNELS.md §keyring)。
+#
+# rotation(密钥轮换)流程规划于 Phase 4;本包结构就绪,等待仪式。
+
+pkgname=archmage-keyring
+pkgver=1
+pkgrel=1
+pkgdesc='ArchMage pacman keyring: stable channel trust anchor (populated via pacman-key)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('pacman')
+install=archmage-keyring.install
+source=('archmage.gpg'
+        'archmage-trusted')
+# archmage.gpg: SKIP —— 该文件由离线仪式产出后打包,密钥本身即信任锚,
+# 没有更上游的签名者可校验;其真实性与出处由仪式文档的人工步骤保证。
+sha256sums=('SKIP'
+            '7fdee615612b070e029730a031fe79e05d6989a9f0ddc7618bc0eff894fa14aa')
+
+package() {
+    install -Dm644 archmage.gpg \
+        "$pkgdir/usr/share/pacman/keyrings/archmage.gpg"
+    install -Dm644 archmage-trusted \
+        "$pkgdir/usr/share/pacman/keyrings/archmage-trusted"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage keyring(archmage-keyring)
+===================================
+
+随包分发:
+
+  /usr/share/pacman/keyrings/archmage.gpg       ArchMage stable 签名公钥
+  /usr/share/pacman/keyrings/archmage-trusted   信任指纹清单
+
+post_install/post_upgrade 执行 `pacman-key --populate archmage`:导入公钥
+并对 trusted 清单里的指纹做本机签名(ultimate trust)。此后客户端对
+[archmage-stable] / [archmage-testing] 通道的 SigLevel Required 校验
+不需要任何手工 key 操作。
+
+密钥与仪式:
+  - stable 签名密钥由维护者在离线介质上生成(离线主键 + 签名子键),
+    公钥经 tools/repo/export-keyring.sh 导出成本包输入;
+  - 仪式逐条步骤见 docs/REPO-CHANNELS.md;私钥永不接触任何自动化
+    (CI/runner/本包构建);
+  - 密钥轮换(rotation)流程规划于 Phase 4。
+EOF
+}

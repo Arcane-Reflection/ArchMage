@@ -1,0 +1,5 @@
+archmage-keyring is excluded from the CI staging build until the offline
+signing ceremony produces overlay/core/archmage-keyring/archmage.gpg
+(makepkg would fail on the missing source). After tools/repo/export-keyring.sh
+runs on the maintainer host: delete this marker, commit, and CI publishes the
+keyring package. Full ceremony: docs/REPO-CHANNELS.md

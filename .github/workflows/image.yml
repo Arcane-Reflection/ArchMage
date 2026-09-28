@@ -274,14 +274,15 @@ jobs:
           bash test/smoke-x86_64.sh --from-ci --timeout 600
 
       - name: Verify x86_64 image structure (gate)
-        # Full mount mode as root on the ext4 the smoke just booted: the
-        # discipline detector + phosh/archmage-cn/[archmage] assertions.
+        # Full mount mode as root on the disk image (GPT: ESP + btrfs flat
+        # subvolume layout) the smoke just booted: the discipline detector +
+        # phosh/archmage-cn/[archmage] + btrfs_layout assertions.
         run: |
           set -euo pipefail
           mkdir -p qemu-image-out
           sudo bash tools/checks/verify-image.sh \
             --image-kind qemu-x86_64 \
-            --rootfs-img test/build/x86_64/rootfs.ext4 \
+            --rootfs-img test/build/x86_64/rootfs.img \
             --out qemu-image-out/verify-image.json
           sudo chown -R "$(id -u):$(id -g)" qemu-image-out
           cat qemu-image-out/verify-image.json >> "$GITHUB_STEP_SUMMARY" || true
@@ -295,7 +296,7 @@ jobs:
           out="qemu-image-out"
           build_date="$(date -u +%Y%m%d)"
           img="archmage-qemu-x86_64-${build_date}.img"
-          cp test/build/x86_64/rootfs.ext4 "$out/$img"
+          cp test/build/x86_64/rootfs.img "$out/$img"
 
           ephemeral=false
           if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
