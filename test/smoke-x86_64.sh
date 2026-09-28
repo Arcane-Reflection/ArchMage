@@ -122,7 +122,7 @@ SMOKE_KEY=$X86_64_DIR/smoke_key
 artifacts_present() {
     [ -s "$X86_64_DIR/vmlinuz-linux" ] &&
         [ -s "$X86_64_DIR/initramfs-linux.img" ] &&
-        [ -s "$X86_64_DIR/rootfs.ext4" ] &&
+        [ -s "$X86_64_DIR/rootfs.img" ] &&
         [ -f "$SMOKE_KEY" ]
 }
 
@@ -253,8 +253,8 @@ qemu-system-x86_64 \
     -accel "$ACCEL_RESOLVED" \
     -kernel "$X86_64_DIR/vmlinuz-linux" \
     -initrd "$X86_64_DIR/initramfs-linux.img" \
-    -append "root=/dev/vda rw console=ttyS0" \
-    -drive file="$X86_64_DIR/rootfs.ext4",if=virtio,format=raw \
+    -append "root=/dev/vda2 rw console=ttyS0" \
+    -drive file="$X86_64_DIR/rootfs.img",if=virtio,format=raw \
     -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)" \
     -device virtio-net-pci,netdev=n0 \
     -nographic -monitor none -no-reboot \

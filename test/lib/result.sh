@@ -26,10 +26,15 @@
 # }
 #
 # Function API:
-#   result_begin <target> <arch> <accel> <results-root-dir>
+#   result_begin <target> <arch> <accel> <results-root-dir> [<json-name>]
+#                <json-name> defaults to smoke.json (backward compatible with
+#                the 01-02/02-01 call sites); Phase 3 cases pass their own
+#                name (rollback.json / ime.json / waydroid.json)
+#   result_set_tier <tier>        override the tier label (default "qemu";
+#                qemu-kvm for the KVM-required Phase 3 cases)
 #   result_assert <name> <pass|fail> <details> [informational]
 #   result_set_boot_seconds <int-seconds>
-#   result_finish            (writes smoke.json, updates latest, sets RESULT_STATUS)
+#   result_finish            (writes <json-name>, updates latest, sets RESULT_STATUS)
 
 _result_die() {
     printf 'ERROR(result): %s\n' "$*" >&2
@@ -40,22 +45,26 @@ RESULT_TARGET=""
 RESULT_ARCH=""
 RESULT_ACCEL=""
 RESULT_TIER="qemu"
+RESULT_JSON="smoke.json"
 RESULT_STARTED_AT=""
 RESULT_BOOT_SECONDS=""
 RESULT_DIR=""
 RESULT_ASSERT_FILE=""
 RESULT_STATUS=""
 
-# result_begin <target> <arch> <accel> <results-root-dir>
+# result_begin <target> <arch> <accel> <results-root-dir> [<json-name>]
 # <results-root-dir> must be "<repo>/test/results"; artifact paths in the
-# JSON are recorded relative to the repo root.
+# JSON are recorded relative to the repo root. <json-name> names the result
+# file inside the run directory (default smoke.json).
 result_begin() {
     local target="${1:?target required}" arch="${2:?arch required}" \
-          accel="${3:?accel required}" root="${4:?results root dir required}"
+          accel="${3:?accel required}" root="${4:?results root dir required}" \
+          json_name="${5:-smoke.json}"
     local ts
     RESULT_TARGET=$target
     RESULT_ARCH=$arch
     RESULT_ACCEL=$accel
+    RESULT_JSON=$json_name
     RESULT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     RESULT_BOOT_SECONDS=""
     ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -66,6 +75,13 @@ result_begin() {
     : > "$RESULT_DIR/journal.log"
     RESULT_ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-assertions.XXXXXX")
     printf 'smoke result dir: %s\n' "$RESULT_DIR" >&2
+}
+
+# result_set_tier <tier>
+# Tier label override (PITFALLS 4: every artifact carries its verification
+# tier). Default "qemu"; "qemu-kvm" marks the KVM-required Phase 3 cases.
+result_set_tier() {
+    RESULT_TIER="${1:?tier required}"
 }
 
 # result_assert <name> <pass|fail> <details> [informational]
@@ -101,9 +117,10 @@ result_set_boot_seconds() {
 }
 
 # result_finish
-# Assemble smoke.json from the recorded assertions, set the overall status
-# (fail iff any non-informational assertion failed), write
-# <results-root>/<ts>/smoke.json and repoint the <results-root>/latest
+# Assemble the result JSON (named by result_begin's json-name argument) from
+# the recorded assertions, set the overall status (fail iff any
+# non-informational assertion failed), write
+# <results-root>/<ts>/<json-name> and repoint the <results-root>/latest
 # symlink at the new run directory. Sets RESULT_STATUS; returns 0 either
 # way — the caller decides the process exit code.
 result_finish() {
@@ -146,12 +163,12 @@ result_finish() {
           assertions: $assertions,
           status: $status,
           artifacts: {serial_log: $serial_log, journal: $journal}}' \
-        > "$RESULT_DIR/smoke.json"
+        > "$RESULT_DIR/$RESULT_JSON"
 
     ln -sfn "$ts" "$root/latest"
     rm -f "$RESULT_ASSERT_FILE"
     RESULT_ASSERT_FILE=""
     RESULT_STATUS=$status
-    printf 'smoke.json: status=%s (%d gating failure(s)) -> %s\n' \
-        "$status" "$fails" "$RESULT_DIR/smoke.json" >&2
+    printf '%s: status=%s (%d gating failure(s)) -> %s\n' \
+        "$RESULT_JSON" "$status" "$fails" "$RESULT_DIR/$RESULT_JSON" >&2
 }
