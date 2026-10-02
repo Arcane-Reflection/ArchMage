@@ -1,0 +1,16 @@
+[Unit]
+Description=ArchMage OSK0 shim (fcitx5-backed on-screen keyboard)
+# phosh >= 0.50 starts the system keyboard through this unit name
+# (phosh.mobi "OSK interface" contract; upstream squeekboard unit shape).
+CollectMode=inactive-or-failed
+After=gnome-session-initialized.target
+PartOf=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=sm.puri.OSK0
+ExecStart=/usr/lib/archmage/archmage-osk0-shim
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

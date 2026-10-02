@@ -140,13 +140,10 @@ ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-uMaj35ty/ArchMage}
 # x86_64 phosh stack from official Arch extra (research STACK.md: phosh is
 # in extra). Minimal set on purpose — the graphical session is informational
 # in the smoke, never a gate.
-# 03-01: squeekboard STAYS in the image through Task 1 (tracer) — the harness
-# masks its activation path at runtime (systemctl --user mask
-# mobi.phosh.OSK.service) so fcitx5 is the only input-method-v2 client.
-# Task 2 removes it from the image entirely: archmage-fcitx5-osk (staging
-# repo) Conflicts it, so both in one pacstrap transaction would fail loudly;
-# the fcitx5 OSK package IS the system keyboard from Task 2 onward.
-PHOSH_PKGS=(phoc phosh squeekboard gnome-console)
+# 03-01 Task 2: squeekboard is GONE from the image — archmage-fcitx5-osk
+# (staging repo) Conflicts it, so both in one pacstrap transaction would
+# fail loudly; the fcitx5 OSK package IS the system keyboard now.
+PHOSH_PKGS=(phoc phosh gnome-console)
 
 # IME stack (03-01, IME-01/02/03): fcitx5 IS the system keyboard candidate —
 # waylandim (input-method-v2) speaks directly to phoc; the toolkit bridges
@@ -875,16 +872,25 @@ SFDISK
     # archmage-btrfs-rollback (03-03 Task 2): snapper limits template +
     # OP6 bootimg store/rollback machinery; rides the staging repo (its
     # install scriptlet weak-binds — no-ops on non-btrfs roots).
-    # (03-01 Task 2 adds archmage-fcitx5-osk here: the phosh OSK0 contract
-    # package replacing squeekboard (Conflicts), with
-    # --assume-installed phosh-osk-provider=1 — the tracer state committed
-    # in Task 1 does not carry it yet.)
+    # archmage-fcitx5-osk (03-01 Task 2): the phosh OSK0 contract package —
+    # replaces squeekboard (Conflicts), carries the IME env defaults and the
+    # Pinyin profile. Requires the staging artifact to contain it (a stale
+    # artifact fails the build with pacstrap target-not-found — loud, by
+    # design: consume the refreshed test/build/staging-local replica).
+    #
+    # --assume-installed phosh-osk-provider=1: phosh depends on the virtual
+    # phosh-osk-provider; without this pacman's provider question resolves
+    # the --noconfirm default to squeekboard, which our package Conflicts —
+    # the transaction dies with "unresolvable package conflicts detected"
+    # (observed live 03-01). The package itself provides the virtual too, so
+    # the image's dependency graph stays consistent after the transaction.
     pacstrap -C "$X86_64_DIR/pacman-install.conf" \
         "$ROOTFS_DIR" \
+        --assume-installed phosh-osk-provider=1 \
         base linux linux-firmware openssh "${PHOSH_PKGS[@]}" "${IME_PKGS[@]}" \
         grub grub-btrfs snapper snap-pac btrfs-progs dosfstools \
         archmage-cn archmage-phosh-safety archmage-cn-apn \
-        archmage-btrfs-rollback
+        archmage-btrfs-rollback archmage-fcitx5-osk
 
     # Space guard: the sparse image allocation must still leave >= 1 GiB free
     # on the btrfs data subvolume for in-VM pacman transactions (the smoke's

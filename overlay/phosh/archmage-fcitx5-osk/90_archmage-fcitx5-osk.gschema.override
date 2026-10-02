@@ -1,0 +1,6 @@
+[org.gnome.desktop.a11y.applications]
+# phosh OSK contract item 5: respect the accessibility screen-keyboard
+# switch. archmage-fcitx5-osk IS the system keyboard, so the factory default
+# is enabled. Users may still turn it off through the normal settings UI
+# (this is a default, not a dconf lock).
+screen-keyboard-enabled=true

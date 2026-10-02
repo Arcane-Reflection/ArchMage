@@ -337,7 +337,7 @@ fi
 result_assert phosh_informational "$PHOSH_STATUS" \
     "informational: systemctl is-active phosh -> '${PHOSH_STATE:-<no output>}' (expected inactive headless; the graphical session is not a CI gate — ARCHITECTURE Anti-Pattern 2)" \
     informational
-PHOSH_PKGS_INSTALLED=$(vm_ssh "pacman -Q phoc phosh squeekboard gnome-console 2>/dev/null" 2>/dev/null || true)
+PHOSH_PKGS_INSTALLED=$(vm_ssh "pacman -Q phoc phosh archmage-fcitx5-osk gnome-console 2>/dev/null" 2>/dev/null || true)
 result_assert phosh_installed_informational "$([ -n "$PHOSH_PKGS_INSTALLED" ] && echo pass || echo fail)" \
     "informational: installed phosh stack: ${PHOSH_PKGS_INSTALLED:-<none>}" informational
 # --------------------------------------------------------------------------

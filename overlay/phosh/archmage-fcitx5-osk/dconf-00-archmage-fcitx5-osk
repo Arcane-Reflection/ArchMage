@@ -1,0 +1,5 @@
+# /etc/dconf/db/local.d/00-archmage-fcitx5-osk — machine default for the
+# same key the gschema.override carries (03-01 phosh OSK contract item 5).
+# No lock: the user's own choice wins after they change it.
+[org/gnome/desktop/a11y/applications]
+screen-keyboard-enabled=true

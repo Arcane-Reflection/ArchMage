@@ -1,0 +1,167 @@
+#!/usr/bin/python3
+# archmage-osk0-shim — phosh OSK contract shell over fcitx5 (03-01, IME-01).
+#
+# phosh (>=0.50) starts the on-screen keyboard through the user unit
+# mobi.phosh.OSK.service / sm.puri.OSK0.desktop (phosh.mobi OSK interface
+# contract). fcitx5 itself does NOT implement the sm.puri.OSK0 DBus surface,
+# so this shim provides exactly the contract pieces phosh needs and maps the
+# visibility requests onto fcitx5:
+#
+#   1. owns the DBus name sm.puri.OSK0 (BusName of the user unit),
+#   2. serves the sm.puri.OSK0 interface at /sm/puri/OSK0:
+#        SetVisible(b)  -> fcitx5-remote -o (activate) / -c (deactivate)
+#        property Visible -> last requested state
+#   3. registers with org.gnome.SessionManager as app-id sm.puri.OSK0
+#      (RegisterClient — the crash-restart hook; research pitfall 1: a shell
+#      that skips this gives you a crashing phosh session),
+#   4. degrades gracefully: no session bus / no SessionManager / no
+#      fcitx5-remote / name already owned are all logged, never a crash —
+#      the shim must start cleanly in headless and image-build contexts.
+#
+# The IME itself (fcitx5 with waylandim) is a separate process; the shim is
+# only the phosh-facing control surface. The keyboard window is fcitx5's
+# classic UI (zwp_input_popup_surface_v2 anchoring, test/ime/decision-spike.md).
+
+import os
+import shutil
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("GLib", "2.0")
+from gi.repository import GLib, Gio  # noqa: E402
+
+BUS_NAME = "sm.puri.OSK0"
+OBJ_PATH = "/sm/puri/OSK0"
+IFACE = "sm.puri.OSK0"
+APP_ID = "sm.puri.OSK0"
+
+INTROSPECTION_XML = f"""
+<node>
+  <interface name="{IFACE}">
+    <method name="SetVisible">
+      <arg name="visible" type="b" direction="in"/>
+    </method>
+    <property name="Visible" type="b" access="read"/>
+  </interface>
+</node>
+"""
+
+SESSION_MANAGER = "org.gnome.SessionManager"
+SESSION_MANAGER_PATH = "/org/gnome/SessionManager"
+
+
+def log(msg):
+    # One line to stdout/stderr — journald picks it up under the user unit.
+    print(f"archmage-osk0-shim: {msg}", file=sys.stderr, flush=True)
+
+
+class OSK0Service:
+    def __init__(self):
+        self.visible = False
+        self.client_id = None
+
+    # -- DBus interface ------------------------------------------------------
+    def on_method_call(self, connection, sender, path, iface, method, params, invocation):
+        if method == "SetVisible":
+            (visible,) = params.unpack()
+            self.set_visible(bool(visible))
+            invocation.return_value(None)
+        else:
+            invocation.return_error_literal(
+                Gio.DBusError.quark_from_code(Gio.DBusError.UNKNOWN_METHOD),
+                f"unknown method {method}",
+            )
+
+    def get_property(self, connection, sender, path, iface, prop):
+        if prop == "Visible":
+            return GLib.Variant("b", self.visible)
+        return None
+
+    # -- fcitx5 mapping -------------------------------------------------------
+    def fcitx5_remote(self, *args):
+        exe = shutil.which("fcitx5-remote")
+        if exe is None:
+            log("degrade: fcitx5-remote not installed; SetVisible ignored")
+            return
+        try:
+            subprocess.run([exe, *args], timeout=5, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f"degrade: fcitx5-remote {args} failed: {exc}")
+
+    def set_visible(self, visible):
+        self.visible = visible
+        if visible:
+            log("SetVisible(true) -> fcitx5-remote -o (activate input method)")
+            self.fcitx5_remote("-o")
+        else:
+            log("SetVisible(false) -> fcitx5-remote -c (deactivate input method)")
+            self.fcitx5_remote("-c")
+
+    # -- session registration (contract item 3) --------------------------------
+    def register_with_session_manager(self, connection):
+        def call_done(_src, res, _data):
+            try:
+                result = _src.call_finish(res)
+                self.client_id = result.unpack()[0] if result.n_children() else None
+                log(f"RegisterClient ok: app-id={APP_ID} client-id={self.client_id}")
+            except GLib.Error as exc:
+                log(f"degrade: RegisterClient failed ({exc.message}) — "
+                    f"session manager absent (headless/dev session); contract call attempted")
+
+        builder = GLib.VariantBuilder.new("(ss)")
+        builder.add_value(GLib.Variant("s", APP_ID))
+        builder.add_value(GLib.Variant("s", f"{APP_ID}.desktop"))
+        connection.call(SESSION_MANAGER, SESSION_MANAGER_PATH, SESSION_MANAGER,
+                        "RegisterClient", builder.end(), GLib.VariantType("(o)"),
+                        Gio.DBusCallFlags.NONE, 5000, None, call_done)
+
+
+def main():
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        # Headless / image-build context: nothing to serve. Clean exit keeps
+        # Restart=on-failure from flapping in environments without a session.
+        log("no session bus (DBUS_SESSION_BUS_ADDRESS unset) — nothing to own, exiting cleanly")
+        return 0
+
+    service = OSK0Service()
+    node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION_XML)
+
+    def on_bus_acquired(connection, _name):
+        log(f"bus acquired, serving {IFACE} at {OBJ_PATH}")
+        connection.register_object(
+            OBJ_PATH,
+            node.interfaces[0],
+            service.on_method_call,
+            service.get_property,
+            None,
+        )
+        service.register_with_session_manager(connection)
+
+    def on_name_acquired(_connection, _name):
+        log(f"name {BUS_NAME} acquired — phosh OSK contract surface ready")
+
+    def on_name_lost(connection, _name):
+        if connection is None:
+            log("bus connection lost")
+            # No bus to serve on at all: treat like the headless case so a
+            # dying session bus does not turn into a restart loop.
+            GLib.MainLoop().quit()
+            return
+        # The name is owned by someone else (e.g. a second instance raced the
+        # unit activation): the contract name IS owned, our copy is redundant.
+        log(f"name {BUS_NAME} already owned elsewhere — redundant instance, exiting cleanly")
+        GLib.MainLoop().quit()
+
+    Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
+                     on_bus_acquired, on_name_acquired, on_name_lost)
+
+    loop = GLib.MainLoop()
+    loop.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

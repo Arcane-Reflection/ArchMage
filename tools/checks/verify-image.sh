@@ -29,6 +29,12 @@
 #                        archmage-cn-apn) exist under the mounted rootfs's
 #                        /usr/lib/NetworkManager/system-connections/
 #                        (02-03, CN-03/TELE-01 machine face; both kinds)
+#   ime_osk_present      (both kinds) archmage-fcitx5-osk is in the pacman
+#                        local db, the phosh OSK0 contract five files are in
+#                        place (sm.puri.OSK0.desktop / mobi.phosh.OSK.service
+#                        / archmage-osk0-shim / environment.d IME defaults /
+#                        fcitx5 profile), and squeekboard is ABSENT from the
+#                        local db (03-01 full-replacement evidence)
 #   btrfs_layout         (qemu-x86_64 only) the rootfs is the 03-03 btrfs
 #                        flat subvolume layout: all six subvolumes (@ @root
 #                        @var @snapshots @srv @tmp) exist; the fstab root
@@ -422,7 +428,34 @@ else
     record apn_presets_present fail "APN preset file(s) missing from the image rootfs: $apn_missing"
 fi
 
-# (e) btrfs flat subvolume layout (03-03, UPDATE-01 machine face; qemu-x86_64
+# (e) IME system keyboard made it into the image (03-01, IME-01; both
+#     kinds — the OP6 profile carries the package in pkgs_include too):
+#     - the pacman local db contains archmage-fcitx5-osk;
+#     - the OSK0 contract five files are in place (desktop / user unit /
+#       shim / environment.d defaults / fcitx5 profile);
+#     - squeekboard is ABSENT from the local db (structural evidence of the
+#       full-replacement decision — Conflicts means both can never be
+#       installed, so its absence proves the replacement transaction ran).
+OSK_DB_DIR=$MNT/var/lib/pacman/local
+osk_db=no
+for d in "$OSK_DB_DIR"/archmage-fcitx5-osk-*/; do
+    if [ -d "$d" ]; then osk_db=yes; break; fi
+done
+osk_missing=""
+[ -f "$MNT/usr/share/applications/sm.puri.OSK0.desktop" ] || osk_missing="${osk_missing:+$osk_missing; }sm.puri.OSK0.desktop"
+[ -f "$MNT/usr/lib/systemd/user/mobi.phosh.OSK.service" ] || osk_missing="${osk_missing:+$osk_missing; }mobi.phosh.OSK.service"
+[ -f "$MNT/usr/lib/archmage/archmage-osk0-shim" ] || osk_missing="${osk_missing:+$osk_missing; }archmage-osk0-shim"
+[ -f "$MNT/usr/lib/environment.d/10-archmage-ime.conf" ] || osk_missing="${osk_missing:+$osk_missing; }10-archmage-ime.conf"
+[ -f "$MNT/etc/xdg/fcitx5/profile" ] || osk_missing="${osk_missing:+$osk_missing; }fcitx5 profile"
+squeekboard_absent=yes
+ls -d "$OSK_DB_DIR"/squeekboard-* >/dev/null 2>&1 && squeekboard_absent=no
+if [ "$osk_db" = yes ] && [ -z "$osk_missing" ] && [ "$squeekboard_absent" = yes ]; then
+    record ime_osk_present pass "archmage-fcitx5-osk in local db; OSK0 contract five files in place (desktop/unit/shim/env/profile); squeekboard absent (full replacement)"
+else
+    record ime_osk_present fail "IME OSK contract broken: archmage-fcitx5-osk in db=$osk_db, missing files=[$osk_missing], squeekboard absent=$squeekboard_absent"
+fi
+
+# (f) btrfs flat subvolume layout (03-03, UPDATE-01 machine face; qemu-x86_64
 #     only — the op6 rootfs is ext4 until the device-side btrfs migration).
 if [ "$KIND" != qemu-x86_64 ]; then
     record btrfs_layout pass "not-applicable: op6 rootfs is ext4 (device-side btrfs migration deferred; asserted on the qemu-x86_64 image)"
@@ -495,7 +528,7 @@ else
     fi
 fi
 
-# (f) two-channel repo client config (03-03, UPDATE-03 machine face; both
+# (g) two-channel repo client config (03-03, UPDATE-03 machine face; both
 #     kinds — every factory image ships the same channel declaration):
 #     - /etc/pacman.conf carries an ACTIVE [archmage-testing] section whose
 #       SigLevel is Required;

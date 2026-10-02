@@ -1,0 +1,134 @@
+# Maintainer: ArchMage contributors
+#
+# fcitx5 as the phosh SYSTEM keyboard (03-01, IME-01/02/03; STRATEGY §5).
+# phosh's on-screen keyboard is contract-based replacement (phosh.mobi
+# "OSK interface"): whoever owns the sm.puri.OSK0 DBus name, the
+# sm.puri.OSK0.desktop file and (phosh >= 0.50) the mobi.phosh.OSK.service
+# user unit IS the system keyboard. This package implements the five
+# contract items on top of fcitx5 (waylandim = input-method-v2) and replaces
+# squeekboard/stevia entirely (Conflicts — they cannot coexist; research Q1
+# decided full replacement, not parallel operation).
+#
+# 五项合同对照(README 有详表):
+#   1. Wayland IM 协议     fcitx5 waylandim 提供 input-method-v2 + virtual-keyboard-v1
+#   2. desktop / user unit sm.puri.OSK0.desktop + mobi.phosh.OSK.service
+#   3. 会话注册            archmage-osk0-shim 以 app-id sm.puri.OSK0 RegisterClient
+#   4. DBus 接口           shim 持 sm.puri.OSK0,SetVisible → fcitx5-remote -o/-c
+#   5. gsettings           screen-keyboard-enabled=true(gschema.override + dconf 默认)
+#
+# 单包决策:配置面只有 unit/desktop/env/profile 四类文件,拆 osk/osk-config
+# 两包没有并行收益,徒增依赖簿记(03-01 计划决策)。
+
+pkgname=archmage-fcitx5-osk
+pkgver=1
+pkgrel=2
+pkgdesc='fcitx5 as the phosh system keyboard: sm.puri.OSK0 shim + desktop/user unit + IME env defaults + Pinyin profile (replaces squeekboard)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('fcitx5' 'fcitx5-chinese-addons' 'fcitx5-gtk' 'fcitx5-qt' 'python-gobject')
+conflicts=('squeekboard' 'stevia')
+# Arch's phosh depends on the virtual phosh-osk-provider (squeekboard and
+# stevia are the repo providers). We ARE the OSK, so declare it — otherwise
+# pacman's provider resolution offers squeekboard (its --noconfirm default)
+# and dies on our own Conflicts. Observed live (03-01): pacstrap failed with
+# "unresolvable package conflicts detected" before this line existed.
+provides=('phosh-osk-provider')
+install=archmage-fcitx5-osk.install
+source=('sm.puri.OSK0.desktop'
+        'mobi.phosh.OSK.service'
+        'archmage-osk0-shim'
+        '90_archmage-fcitx5-osk.gschema.override'
+        'environment-10-archmage-ime.conf'
+        'fcitx5-profile-pinyin'
+        'dconf-00-archmage-fcitx5-osk')
+sha256sums=('6803f67f57b53179539b1eb752b37a62f6011c56d46ea7a208d9624020d87bed'
+            '0a5288406b2fd8d84bfe7737fb13b353af66a731a2eb8ae4ccda26999278e99e'
+            '3c482816db14c2fb3185ce274c12c327c95e1e93f538e3d379fb0f90f4189c30'
+            '6536d2eb1e485683e6f5394fb3b9bab53dfa1d2dabbbba2ff28e4895a79fee69'
+            'becad945a1efc0a558d6e248ed1bc84bd24f68ceb189fa399fc99a4121b7b7b7'
+            '9727571190558b0779fb0fc40a3f91ee3fc8956f916f5e71f57e2051b3ed6c09'
+            '9450bbba2e01ba2fabd29603de47acfbabc9421cbca13abe8eae6cc4508ef31e')
+
+package() {
+    # (2) desktop file layer of the replacement hook.
+    install -Dm644 sm.puri.OSK0.desktop \
+        "$pkgdir/usr/share/applications/sm.puri.OSK0.desktop"
+    # (2) phosh >= 0.50 systemd user unit (whole-unit provision).
+    install -Dm644 mobi.phosh.OSK.service \
+        "$pkgdir/usr/lib/systemd/user/mobi.phosh.OSK.service"
+    # (3)+(4) the DBus shell: owns sm.puri.OSK0, SetVisible -> fcitx5.
+    install -Dm755 archmage-osk0-shim \
+        "$pkgdir/usr/lib/archmage/archmage-osk0-shim"
+    # (5) gsettings factory default + the same key as a dconf machine
+    #     default (no lock — the user's own choice wins afterwards).
+    install -Dm644 90_archmage-fcitx5-osk.gschema.override \
+        "$pkgdir/usr/share/glib-2.0/schemas/90_archmage-fcitx5-osk.gschema.override"
+    install -Dm644 dconf-00-archmage-fcitx5-osk \
+        "$pkgdir/etc/dconf/db/local.d/00-archmage-fcitx5-osk"
+    # IME environment defaults (systemd user environment.d) — the toolkit
+    # access paths of the IM-03 matrix.
+    install -Dm644 environment-10-archmage-ime.conf \
+        "$pkgdir/usr/lib/environment.d/10-archmage-ime.conf"
+    # Factory fcitx5 input-method order: keyboard-us + pinyin.
+    # NOTE: installed to /etc/xdg (NOT the plan draft's /usr/etc) — on Arch,
+    # fcitx5 resolves XDG_CONFIG_DIRS to /etc/xdg; a /usr/etc tree would be
+    # dead weight (deviation documented in the 03-01 SUMMARY).
+    install -Dm644 fcitx5-profile-pinyin \
+        "$pkgdir/etc/xdg/fcitx5/profile"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage 系统键盘(archmage-fcitx5-osk)
+========================================
+
+fcitx5 就是系统键盘:phosh 的屏幕键盘是"合同式替换"——谁持有
+sm.puri.OSK0 名字与启动入口,谁就是系统键盘。本包把 fcitx5
+(waylandim,即 Wayland input-method-v2)接上这份合同,整包替换
+squeekboard/stevia(Conflicts,不并存——research Q1 决策)。
+
+phosh OSK 五项合同对照表
+------------------------
+
+| 合同项 | 上游要求 | 本包落件 |
+| ------ | -------- | -------- |
+| 1. Wayland IM 协议 | 实现 input-method-v2(+virtual-keyboard-v1) | fcitx5 waylandim 模块原生具备(depends 拉入 fcitx5) |
+| 2. 启动入口 | sm.puri.OSK0.desktop;phosh ≥0.50 用 mobi.phosh.OSK.service 整单元 | /usr/share/applications/sm.puri.OSK0.desktop + /usr/lib/systemd/user/mobi.phosh.OSK.service(After=gnome-session-initialized.target、BusName=sm.puri.OSK0、Restart=on-failure、CollectMode=inactive-or-failed) |
+| 3. 会话注册 | 以 app-id sm.puri.OSK0 向 org.gnome.SessionManager RegisterClient(崩溃自动重启钩子;半实现壳会让 phosh 会话死循环) | archmage-osk0-shim 启动即尝试 RegisterClient;无 SessionManager(头显/构建环境)日志降级,不炸 |
+| 4. DBus 接口 | 实现 sm.puri.OSK0(SetVisible 等;home bar 开合依赖它) | shim 持名 sm.puri.OSK0(/sm/puri/OSK0),SetVisible(true/false) → fcitx5-remote -o / -c |
+| 5. gsettings | 尊重 org.gnome.desktop.a11y.applications screen-keyboard-enabled | gschema.override + /etc/dconf/db/local.d 双落件,出厂 true,不锁(用户可关) |
+
+单包决策
+--------
+
+不拆 osk / osk-config 两包:配置面只有 unit、desktop、environment.d、
+fcitx5 profile 四类文件,没有可以并行演化的两个"产品面",拆包徒增
+依赖簿记与同步成本(03-01 计划决策)。所有合同落件与默认配置同进退。
+
+输入接入(工具包矩阵,IM-03)
+----------------------------
+
+出厂环境默认在 /usr/lib/environment.d/10-archmage-ime.conf:
+
+- GTK3/4:**不设** GTK_IM_MODULE——原生走 Wayland text-input-v3;
+- Qt5:QT_IM_MODULE=fcitx(值是 fcitx 不是 fcitx5;Qt <6.7 无 v3 客户端);
+- Qt6 ≥6.7:QT_IM_MODULES=wayland;fcitx;ibus(分号列表,按序协商);
+- Xwayland:XMODIFIERS=@im=fcitx(永远要设)。
+
+候选窗(IME-02)与 OP6 竖屏
+--------------------------
+
+候选词窗口由 fcitx5 classic UI 的 zwp_input_popup_surface_v2 承担:合成器
+按应用上报的 text-input-v3 光标矩形接力定位(判据与截图留档
+test/ime/decision-spike.md)。**竖屏真机上的候选窗遮挡/跟随行为未在真机
+验证,属 device-deferred(OP6 首刷后按 33/DEVICE_REQUIRED 语义复验)**;
+若实测遮挡,兜底方案是 gtk4-layer-shell 自绘面板(计划内偏差路径,
+本包结构不受影响)。
+
+云拼音(默认关闭)
+------------------
+
+profile 默认输入法序 keyboard-us + pinyin;云拼音后端(GoogleCN/Baidu,
+STRATEGY §5.2)留有开关位但不预装、不预启用——输入内容默认不出本机。
+EOF
+}

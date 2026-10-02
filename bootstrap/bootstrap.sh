@@ -203,7 +203,11 @@ assert 'archmage-cn' in build_prof.get('pkgs_exclude', []), 'build profile must 
 # scriptlet weak-binds to btrfs roots, so the ext4 kbs rootfs simply skips
 # the snapper configuration — verified by verify-image's btrfs_layout gate
 # on the x86_64 btrfs image instead).
-OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn', 'archmage-btrfs-rollback')
+# 03-01: archmage-fcitx5-osk rides the same pattern too (it Conflicts
+# squeekboard; the kupfer phosh flavour package set must never pull both —
+# stage-2 installs ours over whatever the flavour stage left, and the
+# pacman transaction's conflict handling removes squeekboard if present).
+OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn', 'archmage-btrfs-rollback', 'archmage-fcitx5-osk')
 for overlay in OVERLAYS:
     assert overlay in prof['pkgs_include'], f'pkgs_include lost {overlay}'
     assert overlay in build_prof.get('pkgs_exclude', []), \
@@ -476,14 +480,28 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
 SigLevel = Required
 Server = $stage2_server
 EOF
-    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback (SigLevel Required, signed DB verified)"
+    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk (SigLevel Required, signed DB verified)"
     mkdir -p "$KBS_CACHE/pacman-image-cache"
+    # 03-01 full OSK replacement: the kupfer phosh flavour stage resolves
+    # phosh's phosh-osk-provider dependency to squeekboard (or stevia) in
+    # stage 1. archmage-fcitx5-osk Conflicts both — and pacman's
+    # conflict-removal question defaults to "no" under --noconfirm, so the
+    # transaction would abort instead of replacing. Remove the repo OSK
+    # explicitly first (-dd: phosh's virtual provider dep is re-satisfied
+    # moments later by archmage-fcitx5-osk's provides= in the install
+    # transaction below).
+    for osk in squeekboard stevia; do
+        if pacman -r "$mnt" -Q "$osk" >/dev/null 2>&1; then
+            archmage_info "stage 2: removing $osk (replaced by archmage-fcitx5-osk, phosh OSK contract)"
+            pacman -r "$mnt" --config "$stage2_conf" -Rdd --noconfirm "$osk"
+        fi
+    done
     # Keep this list identical to the canonical profile's pkgs_include in
     # archmage.toml (bootstrap.sh --check asserts the two stay in sync).
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
         --noconfirm --needed -Sy archmage-cn archmage-phosh-safety \
-        archmage-cn-apn archmage-btrfs-rollback
+        archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk
 
     # 7) Stage 3 — harden the shipped /etc/pacman.conf.
     archmage_info "stage 3: hardening shipped /etc/pacman.conf"

@@ -1,0 +1,23 @@
+# /etc/xdg/fcitx5/profile — ArchMage factory input-method default (03-01).
+# Group order: US keyboard first, Pinyin second. `fcitx5-remote -s pinyin`
+# (or the Ctrl+Space trigger key) switches into Pinyin; every new window
+# starts from the first entry, so plain Latin typing is unaffected.
+#
+# 云拼音开关位(STRATEGY §5.2,默认不启用云端):
+#   安装 fcitx5-module-cloudpinyin 后,在 fcitx5 配置工具 → 插件 →
+#   云拼音 中启用并选择后端(GoogleCN / Baidu);此处刻意不预装、不
+#   预启用——输入内容默认不出本机,需要云联想时由用户显式开启。
+[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=pinyin
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=pinyin
+
+[GroupOrder]
+0=Default

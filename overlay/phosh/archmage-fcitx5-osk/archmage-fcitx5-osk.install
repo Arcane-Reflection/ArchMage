@@ -1,0 +1,34 @@
+# archmage-fcitx5-osk install scriptlet (03-01, phosh OSK contract)
+#
+# glib-compile-schemas: our gschema.override joins the compiled schema cache
+# (contract item 5 — the screen-keyboard-enabled factory default only takes
+# effect once compiled). dconf update: the machine default in
+# /etc/dconf/db/local.d lands in the binary dconf database.
+# Both steps are weak-binding (tool present + directory present), idempotent,
+# and tolerate pacstrap/pacman -r chroots where glib2/dconf may not be
+# usable yet — same pattern as archmage-phosh-safety.
+
+post_install() {
+    _archmage_osk0_configure
+}
+
+post_upgrade() {
+    _archmage_osk0_configure
+}
+
+_archmage_osk0_configure() {
+    if command -v glib-compile-schemas >/dev/null 2>&1 \
+      && [ -d /usr/share/glib-2.0/schemas ]; then
+        glib-compile-schemas /usr/share/glib-2.0/schemas || true
+    fi
+    if command -v dconf >/dev/null 2>&1; then
+        dconf update || true
+    fi
+    # The user unit (mobi.phosh.OSK.service) is picked up by the user
+    # manager on its next daemon-reload; a session that is already running
+    # re-reads units at the next login. Best-effort only — build roots and
+    # headless roots have no user manager.
+    if [ -d /run/user ] && systemctl is-system-running >/dev/null 2>&1; then
+        systemctl --global daemon-reload >/dev/null 2>&1 || true
+    fi
+}

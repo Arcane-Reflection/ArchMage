@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ArchMage Keyboard
+GenericName=On-screen keyboard
+Comment=fcitx5-backed phosh OSK (sm.puri.OSK0 contract)
+Keywords=keyboard;ime;fcitx;
+Exec=/usr/lib/archmage/archmage-osk0-shim
+TryExec=/usr/lib/archmage/archmage-osk0-shim
+OnlyShowIn=GNOME;Phosh:;
+NoDisplay=true
