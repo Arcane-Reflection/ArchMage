@@ -34,6 +34,10 @@
 # falls back to \EFI\BOOT\BOOTX64.EFI), with grub-btrfs/snapper/snap-pac
 # preinstalled for the rollback chain (test/rollback-x86_64.sh).
 #
+# 03-01 adds the IME stack (fcitx5 + toolkit bridges + wtype/grim/gtk) and a
+# dev-image-only phosh session unit (etc/systemd/system/phosh.service) so
+# test/ime/ime-verify.sh can drive a real phosh/phoc session in the VM.
+#
 # The staging repo itself is embedded into the image at
 # /var/lib/archmage/staging (arch=any meta packages, a few MB) so the in-VM
 # `pacman -Syu` gate can exercise the [archmage] repo declaration end to end
@@ -136,7 +140,25 @@ ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-uMaj35ty/ArchMage}
 # x86_64 phosh stack from official Arch extra (research STACK.md: phosh is
 # in extra). Minimal set on purpose — the graphical session is informational
 # in the smoke, never a gate.
+# 03-01: squeekboard STAYS in the image through Task 1 (tracer) — the harness
+# masks its activation path at runtime (systemctl --user mask
+# mobi.phosh.OSK.service) so fcitx5 is the only input-method-v2 client.
+# Task 2 removes it from the image entirely: archmage-fcitx5-osk (staging
+# repo) Conflicts it, so both in one pacstrap transaction would fail loudly;
+# the fcitx5 OSK package IS the system keyboard from Task 2 onward.
 PHOSH_PKGS=(phoc phosh squeekboard gnome-console)
+
+# IME stack (03-01, IME-01/02/03): fcitx5 IS the system keyboard candidate —
+# waylandim (input-method-v2) speaks directly to phoc; the toolkit bridges
+# (fcitx5-gtk / fcitx5-qt) serve the Xwayland and DBus-legacy rows of the
+# input matrix. wtype drives the programmatic typing; grim captures session
+# screenshots (candidate-window artifacts); gtk3/gtk4 + python-gobject run
+# the commit-capture test app; xorg-xwayland serves the X11 matrix row.
+# squeekboard STAYS in the image through Task 1 (tracer): the harness masks
+# its activation path at runtime so fcitx5 is the only input-method-v2
+# client. Task 2 (archmage-fcitx5-osk) removes it from the image entirely.
+IME_PKGS=(fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt wtype grim \
+    python-gobject gtk4 gtk3 xorg-xwayland)
 
 # Required staging artifact files (01-01 contract).
 staging_valid() {
@@ -232,6 +254,353 @@ host_main() {
     [ -d "$ROOTFS_DIR" ] || die "expected output directory $ROOTFS_DIR is missing"
     archmage_info "rootfs build complete: $X86_64_DIR"
     archmage_info "next: bash test/smoke-x86_64.sh"
+}
+
+# ensure_phosh_compat_wlroots <image-rootfs-dir> — 03-01 dev-image pin.
+#
+# Arch ships vanilla wlroots 0.20 with the "layer-shell: error on 0 dimension
+# without anchors" check (upstream commit 8dec751, wlroots 0.17+), while
+# phosh still sends its "phosh home" surface as set_size(0,0) anchored
+# bottom+left+right — phosh#422. Every distro that pairs phosh with phoc
+# carries a downstream revert of that check (phoc release notes list it as a
+# "required wlroots patch"; Debian and AUR patch the same way); Arch does
+# not, so the stock Arch phosh+phoc pairing aborts phosh at startup with
+# "height 0 requested without setting top and bottom anchors" (observed live
+# in the 03-01 tracer). This function rebuilds the SAME wlroots version the
+# image pacstrapped with that single revert and installs it over the stock
+# package (pkgrel bumped) so the dev-image phosh session can run. phoc links
+# the library by soname — no phoc rebuild needed.
+#
+# The package is cached under test/build/cache/wlroots-phosh-compat/ keyed
+# by upstream version; the install transaction uses a THROWAWAY pacman config
+# (SigLevel Never) because a locally built package carries no signature —
+# the same throwaway-root scope rule as DisableSandbox (01-02): dev-image
+# pin only, shipped pacman.conf untouched, factory phosh/OP6 lines unaffected
+# (kupfer pairs phoc with its own patched wlroots).
+ensure_phosh_compat_wlroots() {
+    local rootfs_dir=$1
+    local cache_dir=$BUILD_DIR/cache/wlroots-phosh-compat
+    local upver dbentry cached_pkg marker patch_id
+    dbentry=$(ls "$rootfs_dir/var/lib/pacman/local" 2>/dev/null \
+        | grep '^wlroots0.20-' | head -1) || true
+    [ -n "$dbentry" ] || die "wlroots0.20 not found in the image local db"
+    upver=${dbentry#wlroots0.20-}
+    upver=${upver%-*} # 0.20.2-1 -> 0.20.2 (upstream tag)
+    patch_id=phosh422-revert-8dec751
+    cached_pkg=$cache_dir/wlroots0.20-$upver-2-x86_64.pkg.tar.zst
+    marker=$cache_dir/built-$upver-$patch_id
+
+    if [ ! -s "$cached_pkg" ] || [ ! -f "$marker" ]; then
+        archmage_info "building wlroots0.20 $upver with the $patch_id patch (phosh#422; cached after first build)"
+        # Build deps for the wlroots meson build (throwaway build container).
+        pacman -Sy --noconfirm --needed base-devel git meson ninja wayland \
+            wayland-protocols libdrm mesa libglvnd egl-wayland libinput \
+            libxkbcommon libxkbcommon-x11 pixman libcap seatd lcms2 \
+            libdisplay-info hwdata libxcb xcb-util-wm xcb-util-renderutil \
+            xcb-util-errors xorg-xwayland glslang vulkan-headers \
+            vulkan-icd-loader > /dev/null || \
+            die "wlroots build deps pacman -Sy failed (see the pacman output above)"
+        local work=/tmp/wlroots-phosh-compat
+        rm -rf "$work"
+        mkdir -p "$work/src"
+        curl --fail --location --retry 3 \
+            "https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/$upver/wlroots-$upver.tar.gz" \
+            -o "$work/src.tar.gz" || die "cannot fetch wlroots $upver source"
+        tar xzf "$work/src.tar.gz" -C "$work/src" --strip-components=1
+        python3 - "$work/src/types/wlr_layer_shell_v1.c" <<'PYEOF'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+pairs = [
+    ("if (surface->pending.desired_width == 0 && (anchor & horiz) != horiz) {",
+     "if (0 && surface->pending.desired_width == 0 && (anchor & horiz) != horiz) { /* ArchMage dev pin: revert wlroots 8dec751 (phosh#422) */"),
+    ("if (surface->pending.desired_height == 0 && (anchor & vert) != vert) {",
+     "if (0 && surface->pending.desired_height == 0 && (anchor & vert) != vert) { /* ArchMage dev pin: revert wlroots 8dec751 (phosh#422) */"),
+    ("\tconst uint32_t horiz = ", "\tconst uint32_t horiz __attribute__((unused)) = "),
+    ("\tconst uint32_t vert = ", "\tconst uint32_t vert __attribute__((unused)) = "),
+]
+for old, new in pairs:
+    assert old in s, f"wlroots layer-shell check drifted; patch site not found: {old!r}"
+    s = s.replace(old, new)
+p.write_text(s)
+print("wlroots layer-shell 0-dimension checks neutralised (phosh#422)")
+PYEOF
+        # -Dxwayland=enabled turns the feature into a HARD requirement: a
+        # missing dependency fails meson setup with its NAME instead of the
+        # feature being silently auto-disabled (the auto form once produced a
+        # lib without xwayland symbols here; without the explicit option the
+        # root cause was invisible — observed live 03-01).
+        meson setup "$work/src/build" "$work/src" \
+            -Dprefix=/usr -Dbuildtype=plain -Dexamples=false \
+            -Dxwayland=enabled \
+            > "$work/meson.log" 2>&1 || {
+                tail -20 "$work/meson.log"
+                cp "$work/meson.log" "$BUILD_DIR/x86_64/wlroots-meson-failed.log" 2>/dev/null || true
+                die "wlroots meson setup failed"
+            }
+        meson compile -C "$work/src/build" > "$work/ninja.log" 2>&1 || \
+            {
+                tail -20 "$work/ninja.log"
+                cp "$work/ninja.log" "$BUILD_DIR/x86_64/wlroots-ninja-failed.log" 2>/dev/null || true
+                die "wlroots build failed"
+            }
+        # Feature parity with the Arch package: xwayland symbols must exist
+        # (a feature-less build breaks phoc at load time — observed live).
+        # SIGPIPE discipline: capture nm's output first, then grep — under
+        # `set -o pipefail`, `nm | grep -q` is a false-negative machine:
+        # grep -q exits on the first match, nm dies writing the next line
+        # (rc 141 = SIGPIPE), and the pipeline fails DESPITE the match
+        # (observed live 03-01: flapped run-to-run depending on how much
+        # output nm still had buffered).
+        NM_SYMS=$(nm -D "$work/src/build/libwlroots-0.20.so" 2>&1) || true
+        if ! printf '%s\n' "$NM_SYMS" | grep -q wlr_xwayland_surface_override_redirect_wants_focus; then
+            # Diagnose BEFORE dying: everything needed to triage goes to a
+            # host-visible file (the container itself is --rm).
+            {
+                echo "== meson --version / ninja =="; meson --version; command -v ninja
+                echo "== feature summary =="; grep -E '^\s+\w+\s+:' "$work/meson.log" | head -25
+                echo "== meson-log.txt xwayland detection =="
+                grep -iE 'xwayland' "$work/src/build/meson-logs/meson-log.txt" | head -10
+                echo "== ninja.log tail =="; tail -15 "$work/ninja.log"
+                echo "== build dir =="; ls -la "$work/src/build/" | grep -E 'wlroots|\.so'
+                echo "== nm -D output (first lines incl. errors) =="
+                printf '%s\n' "$NM_SYMS" | sed -n '1,5p'
+                echo "== nm xwayland count =="
+                printf '%s\n' "$NM_SYMS" | grep -c wlr_xwayland || true
+            } > "$BUILD_DIR/x86_64/wlroots-failed-diag.txt" 2>&1
+            die "patched wlroots lacks xwayland symbols (see wlroots-failed-diag.txt under test/build/x86_64/)"
+        fi
+        # The revert must actually strip the fatal string from the binary.
+        if grep -q 'height 0 requested without' "$work/src/build/libwlroots-0.20.so"; then
+            die "patched wlroots still contains the 0-dimension check"
+        fi
+        rm -rf "$work/pkgdir"
+        mkdir -p "$work/pkgdir"
+        DESTDIR="$work/pkgdir" meson install -C "$work/src/build" > /dev/null 2>&1
+        mkdir -p "$cache_dir"
+        cat > "$work/pkgdir/.PKGINFO" <<EOF
+pkgname = wlroots0.20
+pkgver = $upver-2
+pkgdesc = wlroots $upver with phosh-required layer-shell 0-dimension revert ($patch_id; ArchMage dev pin, phosh#422)
+url = https://gitlab.freedesktop.org/wlroots/wlroots
+builddate = $(date +%s)
+packager = ArchMage dev build (mkrootfs-x86_64.sh)
+size = $(du -sb "$work/pkgdir/usr" | cut -f1)
+arch = x86_64
+license = custom
+replaces = wlroots0.20<$upver-2
+EOF
+        bsdtar -czf "$cached_pkg" -C "$work/pkgdir" .PKGINFO usr
+        date -u +"%Y-%m-%dT%H:%M:%SZ patch=$patch_id" > "$marker"
+    else
+        archmage_info "reusing cached phosh-compat wlroots: $cached_pkg"
+    fi
+
+    # Install over the stock package. THROWAWAY config (SigLevel Never): a
+    # locally built package carries no signature; scope is this dev-image pin
+    # only — shipped /etc/pacman.conf (Required discipline) is untouched.
+    # The target rootfs ships libalpm hooks meant for a BOOTED system: snap-pac
+    #'s pre hook does os.stat("/proc/1/root/.") — nonexistent in the build
+    # chroot — errors out, and pacman fails the transaction with "failed to
+    # run transaction hooks" (observed live 03-01). HookDir cannot help (it
+    # ADDS a search dir; the rootfs's /usr/share/libalpm/hooks is always
+    # scanned), so the hook tree is held aside for THIS transaction and
+    # restored after. ldconfig, the one hook that matters for a lib swap,
+    # runs explicitly right after.
+    cat > "$BUILD_DIR/x86_64/pacman-local-pin.conf" <<'EOF'
+# Throwaway pacman config for the unsigned dev-image wlroots pin (03-01).
+[options]
+Architecture = x86_64
+SigLevel = Never
+DisableSandbox
+EOF
+    HOOKS_HOLD=$BUILD_DIR/x86_64/libalpm-hooks.hold
+    if [ -d "$rootfs_dir/usr/share/libalpm/hooks" ]; then
+        rm -rf "$HOOKS_HOLD"
+        mv "$rootfs_dir/usr/share/libalpm/hooks" "$HOOKS_HOLD"
+    fi
+    if ! pacman -r "$rootfs_dir" --config "$BUILD_DIR/x86_64/pacman-local-pin.conf" \
+            -U "$cached_pkg" --noconfirm \
+            > "$BUILD_DIR/x86_64/wlroots-pin-transaction.log" 2>&1; then
+        tail -20 "$BUILD_DIR/x86_64/wlroots-pin-transaction.log"
+        die "pacman -U of the phosh-compat wlroots failed (full log: test/build/x86_64/wlroots-pin-transaction.log)"
+    fi
+    [ ! -d "$HOOKS_HOLD" ] || mv "$HOOKS_HOLD" "$rootfs_dir/usr/share/libalpm/hooks"
+    ldconfig -r "$rootfs_dir" || die "ldconfig -r against the image rootfs failed"
+    # Post-install proof on the image filesystem.
+    if grep -q 'height 0 requested without' \
+        "$rootfs_dir/usr/lib/libwlroots-0.20.so"; then
+        die "image libwlroots still carries the 0-dimension layer-shell check"
+    fi
+    archmage_info "phosh-compat wlroots $upver-2 installed into the image (phosh#422 revert)"
+}
+
+# ensure_phoc_im_grab_fix <image-rootfs-dir> — 03-01 dev-image pin, second
+# half of the compositor pair.
+#
+# phoc 0.57.0's handle_im_keyboard_grab_destroy reads the signal payload via
+# `data`, but wlroots 0.20 emits destroy signals with a NULL payload (MR
+# 5107, "signals use NULL sources as data") — killing fcitx5 or any input-
+# method keyboard-grab teardown segfaults phoc at keyboard_grab->keyboard
+# (segfault at 0x10; symbolized live 03-01 via debuginfod: the faulting ip
+# lands in handle_im_keyboard_grab_destroy). Same crash class as labwc #2978,
+# sway #8864/#8878, river and wayfire #3001 — every compositor on wlroots 0.20
+# had to adapt; phoc 0.57.0 (even git main, checked) still reads `data`, and
+# the matrix harness cannot survive one teardown without this fix.
+#
+# The patch captures the keyboard_grab pointer when the grab_keyboard event
+# fires and uses it in the destroy handler (the grab and its input_method are
+# both still allocated when the destroy signal is emitted — wlroots frees
+# them only after the emit returns), mirroring labwc #2979's shape. Built
+# from the pristine phoc 0.57.0 tarball like the wlroots pin above; cached
+# under test/build/cache/phoc-im-grab-fix/ keyed by upstream version;
+# installed with the same throwaway pacman config (SigLevel Never).
+ensure_phoc_im_grab_fix() {
+    local rootfs_dir=$1
+    local cache_dir=$BUILD_DIR/cache/phoc-im-grab-fix
+    local upver cached_pkg marker
+    upver=$(ls "$rootfs_dir/var/lib/pacman/local" 2>/dev/null \
+        | grep '^phoc-' | head -1) || true
+    [ -n "$upver" ] || die "phoc not found in the image local db"
+    upver=${upver#phoc-}
+    upver=${upver%-*} # 0.57.0-1 -> 0.57.0
+    cached_pkg=$cache_dir/phoc-$upver-2-x86_64.pkg.tar.zst
+    marker=$cache_dir/built-$upver-im-grab-null-data-fix
+
+    if [ ! -s "$cached_pkg" ] || [ ! -f "$marker" ]; then
+        archmage_info "building phoc $upver with the IM grab-destroy NULL-data fix (cached after first build)"
+        # phoc's runtime deps carry all headers (no dev/runtime split on
+        # Arch); installing the stock phoc package is the simplest way to
+        # pull the exact dependency set meson needs. glib2-devel owns
+        # glib-mkenums (split out of glib2; meson reads the tool variable
+        # from glib-2.0.pc and hard-fails when the binary is absent —
+        # observed live 03-01).
+        pacman -Sy --noconfirm --needed base-devel git meson ninja phoc \
+            glib2-devel \
+            > /dev/null || \
+            die "phoc build deps pacman -Sy failed (see the pacman output above)"
+        local work=/tmp/phoc-im-grab-fix
+        rm -rf "$work"
+        mkdir -p "$work/src"
+        curl --fail --location --retry 3 \
+            "https://gitlab.gnome.org/World/Phosh/phoc/-/archive/v$upver/phoc-v$upver.tar.gz" \
+            -o "$work/src.tar.gz" || die "cannot fetch phoc v$upver source"
+        tar xzf "$work/src.tar.gz" -C "$work/src" --strip-components=1
+        python3 - "$work/src/src/input-method-relay.c" \
+                  "$work/src/src/input-method-relay.h" <<'PYEOF'
+import pathlib, sys
+
+c = pathlib.Path(sys.argv[1])
+s = c.read_text()
+
+destroy_old = """  PhocInputMethodRelay *relay =
+    wl_container_of (listener, relay, input_method_keyboard_grab_destroy);
+  struct wlr_input_method_keyboard_grab_v2 *keyboard_grab = data;
+
+  wl_list_remove (&relay->input_method_keyboard_grab_destroy.link);
+
+  if (keyboard_grab->keyboard) {"""
+destroy_new = """  PhocInputMethodRelay *relay =
+    wl_container_of (listener, relay, input_method_keyboard_grab_destroy);
+  /* ArchMage dev pin (03-01): wlroots >= 0.20 emits destroy signals with a
+   * NULL payload (MR 5107) - reading `data` here segfaults on every input
+   * method teardown (labwc #2978 / sway #8864 crash class). Use the grab
+   * captured when grab_keyboard fired; wlroots only frees the grab and its
+   * input_method after this handler returns. */
+  struct wlr_input_method_keyboard_grab_v2 *keyboard_grab = relay->keyboard_grab;
+
+  wl_list_remove (&relay->input_method_keyboard_grab_destroy.link);
+  relay->keyboard_grab = NULL;
+
+  if (keyboard_grab == NULL)
+    return;
+
+  if (keyboard_grab->keyboard) {"""
+assert destroy_old in s, "phoc grab-destroy handler drifted; patch site not found"
+s = s.replace(destroy_old, destroy_new)
+
+grab_old = """  wl_signal_add (&keyboard_grab->events.destroy, &relay->input_method_keyboard_grab_destroy);
+  relay->input_method_keyboard_grab_destroy.notify = handle_im_keyboard_grab_destroy;"""
+grab_new = """  relay->keyboard_grab = keyboard_grab;
+  wl_signal_add (&keyboard_grab->events.destroy, &relay->input_method_keyboard_grab_destroy);
+  relay->input_method_keyboard_grab_destroy.notify = handle_im_keyboard_grab_destroy;"""
+assert grab_old in s, "phoc grab-keyboard handler drifted; patch site not found"
+s = s.replace(grab_old, grab_new)
+c.write_text(s)
+
+h = pathlib.Path(sys.argv[2])
+t = h.read_text()
+header_old = """  struct wl_listener input_method_keyboard_grab_destroy;
+} PhocInputMethodRelay;"""
+header_new = """  struct wl_listener input_method_keyboard_grab_destroy;
+
+  /* ArchMage dev pin (03-01): the keyboard grab captured in
+   * handle_im_grab_keyboard — the wlroots 0.20 destroy signal payload is
+   * NULL, so the destroy handler cannot recover it from `data`. */
+  struct wlr_input_method_keyboard_grab_v2 *keyboard_grab;
+} PhocInputMethodRelay;"""
+assert header_old in t, "phoc relay header drifted; patch site not found"
+h.write_text(t.replace(header_old, header_new))
+print("phoc IM grab-destroy NULL-data fix applied")
+PYEOF
+        meson setup "$work/src/build" "$work/src" \
+            -Dprefix=/usr -Dbuildtype=plain \
+            > "$work/meson.log" 2>&1 || {
+                tail -20 "$work/meson.log"
+                cp "$work/meson.log" "$BUILD_DIR/x86_64/phoc-meson-failed.log" 2>/dev/null || true
+                die "phoc meson setup failed"
+            }
+        meson compile -C "$work/src/build" > "$work/ninja.log" 2>&1 || \
+            {
+                tail -20 "$work/ninja.log"
+                cp "$work/ninja.log" "$BUILD_DIR/x86_64/phoc-ninja-failed.log" 2>/dev/null || true
+                die "phoc build failed"
+            }
+        # The patched destroy handler must not read the signal payload
+        # anymore (scoped to that handler — the grab_keyboard NEW-object
+        # event legitimately keeps passing the grab as data).
+        if sed -n '/handle_im_keyboard_grab_destroy (struct wl_listener/,/^}/p' \
+            "$work/src/src/input-method-relay.c" | grep -q '= data;'; then
+            die "patched phoc destroy handler still reads the signal payload"
+        fi
+        rm -rf "$work/pkgdir"
+        mkdir -p "$work/pkgdir"
+        DESTDIR="$work/pkgdir" meson install -C "$work/src/build" > /dev/null 2>&1
+        mkdir -p "$cache_dir"
+        cat > "$work/pkgdir/.PKGINFO" <<EOF
+pkgname = phoc
+pkgver = $upver-2
+pkgdesc = phoc $upver with the IM keyboard-grab destroy NULL-data fix (ArchMage dev pin; wlroots MR 5107 crash class, labwc#2978)
+url = https://gitlab.gnome.org/World/Phosh/phoc
+builddate = $(date +%s)
+packager = ArchMage dev build (mkrootfs-x86_64.sh)
+size = $(du -sb "$work/pkgdir/usr" | cut -f1)
+arch = x86_64
+license = GPL-3.0-or-later
+replaces = phoc<$upver-2
+EOF
+        bsdtar -czf "$cached_pkg" -C "$work/pkgdir" .PKGINFO usr
+        date -u +"%Y-%m-%dT%H:%M:%SZ fix=im-grab-null-data" > "$marker"
+    else
+        archmage_info "reusing cached phoc IM-grab-fix build: $cached_pkg"
+    fi
+
+    # Install over the stock package with the same throwaway config and the
+    # same libalpm-hooks hold-aside as the wlroots pin (see above).
+    HOOKS_HOLD=$BUILD_DIR/x86_64/libalpm-hooks.hold-phoc
+    if [ -d "$rootfs_dir/usr/share/libalpm/hooks" ]; then
+        rm -rf "$HOOKS_HOLD"
+        mv "$rootfs_dir/usr/share/libalpm/hooks" "$HOOKS_HOLD"
+    fi
+    if ! pacman -r "$rootfs_dir" --config "$BUILD_DIR/x86_64/pacman-local-pin.conf" \
+            -U "$cached_pkg" --noconfirm \
+            > "$BUILD_DIR/x86_64/phoc-pin-transaction.log" 2>&1; then
+        tail -20 "$BUILD_DIR/x86_64/phoc-pin-transaction.log"
+        die "pacman -U of the phoc IM-grab-fix build failed (full log: test/build/x86_64/phoc-pin-transaction.log)"
+    fi
+    [ ! -d "$HOOKS_HOLD" ] || mv "$HOOKS_HOLD" "$rootfs_dir/usr/share/libalpm/hooks"
+    ldconfig -r "$rootfs_dir" || die "ldconfig -r against the image rootfs failed"
+    archmage_info "phoc $upver-2 with IM grab-destroy fix installed into the image"
 }
 
 container_main() {
@@ -342,7 +711,11 @@ EOF
     # real build error that triggered the exit (observed live).
     esp_loop=""
     btrfs_loop=""
-    IMG_TOTAL_MB=8192
+    # 12 GiB sparse allocation (03-01): the tracer adds the fcitx5/gtk stack
+    # to the image and Task 3's matrix installs chromium + both Qt stacks
+    # IN-VM (another ~3 GiB with caches). Only touched extents consume host
+    # space; the post-pacstrap free-space guard below stays the loud check.
+    IMG_TOTAL_MB=12288
     cleanup_disk() {
         for m in "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/dev" \
                  "$ROOTFS_DIR/boot/efi" "$ROOTFS_DIR/tmp" "$ROOTFS_DIR/srv" \
@@ -399,40 +772,34 @@ SFDISK
     truncate -s $((ROOT_SECTORS * 512)) "$btrfs_img"
 
     attach_bare() {  # attach_bare <img>  -> RM_LOOP (bare loop, no partscan)
-        local attempt i free minor
+        local attempt minor node
         RM_LOOP=""
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            # Preferred path: ask the kernel (loop-control) for a free loop
-            # device, create its node if missing, attach to THAT node. Bare
-            # `losetup -f --show` fails outright when the node for the device
-            # it picked does not exist — the shared-host /dev race below can
-            # swallow freshly mknod'd nodes, and the node set is not limited
-            # to loop0-7 (observed live: loop9/loop65 in use on this host).
-            free=$(losetup -f 2>/dev/null) || free=""
-            if [ -n "$free" ]; then
-                minor=${free#/dev/loop}
-                case "$minor" in
-                    ''|*[!0-9]*) minor="" ;;
-                esac
-                [ -e "$free" ] || [ -z "$minor" ] || \
-                    mknod "$free" b 7 "$minor" 2>/dev/null || true
-                # NOTE: explicit-device losetup is silent on success (unlike
-                # -f --show) — set RM_LOOP from $free, not from stdout.
-                if losetup "$free" "$1" 2>/dev/null; then
-                    RM_LOOP=$free
-                    return 0
-                fi
-            fi
-            # Fallback: the plain -f --show form, then recreate the standard
-            # nodes and retry after a pause.
-            if RM_LOOP=$(losetup -f --show "$1" 2>/dev/null); then
+        for attempt in 1 2 3; do
+            # Preferred path: util-linux picks a free loop device via
+            # loop-control AND creates the /dev node itself.
+            if RM_LOOP=$(losetup -f --show "$1" 2>>"$X86_64_DIR/losetup-debug.log"); then
                 return 0
             fi
-            RM_LOOP=""
-            [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
-            for i in $(seq 0 15); do
-                [ -e "/dev/loop$i" ] || mknod "/dev/loop$i" b 7 "$i" 2>/dev/null || true
+            # Fallback: index-range scan. On this host the kernel sometimes
+            # never instantiates the index loop-control returns (observed
+            # live 03-01: "device node /dev/loop19 (7:19) is lost", ten
+            # attempts in a row, while other indices attach fine) — stale
+            # zombie attachments from crashed builds occupy other indices
+            # and cannot be detached from userspace. Walk the whole range:
+            # attaching over a CONFIGURED device fails harmlessly with EBUSY
+            # (the zombie is untouched); a nonexistent kernel device fails
+            # with ENXIO; the first instantiable free device wins. Errors go
+            # to the debug log for triage.
+            for minor in $(seq 0 127); do
+                node="/dev/loop$minor"
+                [ -e "$node" ] || mknod "$node" b 7 "$minor" 2>/dev/null || true
+                [ -e "$node" ] || continue
+                if losetup "$node" "$1" 2>>"$X86_64_DIR/losetup-debug.log"; then
+                    RM_LOOP=$node
+                    return 0
+                fi
             done
+            [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
             sleep 2
         done
         return 1
@@ -508,9 +875,13 @@ SFDISK
     # archmage-btrfs-rollback (03-03 Task 2): snapper limits template +
     # OP6 bootimg store/rollback machinery; rides the staging repo (its
     # install scriptlet weak-binds — no-ops on non-btrfs roots).
+    # (03-01 Task 2 adds archmage-fcitx5-osk here: the phosh OSK0 contract
+    # package replacing squeekboard (Conflicts), with
+    # --assume-installed phosh-osk-provider=1 — the tracer state committed
+    # in Task 1 does not carry it yet.)
     pacstrap -C "$X86_64_DIR/pacman-install.conf" \
         "$ROOTFS_DIR" \
-        base linux linux-firmware openssh "${PHOSH_PKGS[@]}" \
+        base linux linux-firmware openssh "${PHOSH_PKGS[@]}" "${IME_PKGS[@]}" \
         grub grub-btrfs snapper snap-pac btrfs-progs dosfstools \
         archmage-cn archmage-phosh-safety archmage-cn-apn \
         archmage-btrfs-rollback
@@ -522,6 +893,12 @@ SFDISK
     avail_mb=$(df -BM --output=avail "$ROOTFS_DIR" | tail -1 | tr -dc '0-9')
     [ "${avail_mb:-0}" -ge 1024 ] || \
         die "btrfs data subvolume has only ${avail_mb}M free (< 1024M) — raise IMG_TOTAL_MB in this script"
+
+    # 3b) phosh-compat wlroots pin (03-01): phosh#422 — see the function.
+    ensure_phosh_compat_wlroots "$ROOTFS_DIR"
+    # 3c) phoc IM grab-destroy fix (03-01): wlroots 0.20 NULL-payload crash —
+    #     see the function. After the wlroots pin (same throwaway config).
+    ensure_phoc_im_grab_fix "$ROOTFS_DIR"
 
     # 4) Units: sshd (gate) + QEMU networking (hostfwd SSH needs the NIC up).
     WANTS=$ROOTFS_DIR/etc/systemd/system/multi-user.target.wants
@@ -537,6 +914,117 @@ Name=en* eth0
 DHCP=yes
 EOF
     ln -sfn /run/systemd/resolve/stub-resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
+
+    # 4b) Dev-image-only phosh session unit (03-01, IME tracer). Real devices
+    #     start phosh through the upstream session mechanism — this unit only
+    #     gives the headless QEMU VM a graphical-session entry so the IME
+    #     harness can drive a REAL phosh/phoc session over SSH:
+    #     - phosh (>= 0.44 layout) is a pure Wayland CLIENT: the session is
+    #       phoc-first — phoc starts, then execs phosh via -E (same shape as
+    #       upstream /usr/bin/phosh-session, minus gnome-session, which the
+    #       throwaway root cannot provide: no systemd --user instance).
+    #     - WLR_BACKENDS=headless: the VM has no logind seat for the root
+    #       service (libseat "No backend was able to open a seat" — observed
+    #       live), so the DRM backend cannot run; headless + HEADLESS-1
+    #       (portrait phone geometry via /etc/phosh/phoc.ini below) works and
+    #       grim captures it. WLR_RENDERER=pixman: the headless output gets
+    #       its buffers from the shm allocator (no working GBM device under
+    #       QEMU without virgl: gbm_bo_create on the virtio render node
+    #       fails, and "llvmpipe" is not a valid WLR_RENDERER value — an
+    #       invalid value leaves a half-initialised EGL state whose output
+    #       swapchain is 0x0 with no formats, and screencopy then segfaults
+    #       phoc; observed live 03-01). Clients that need GL ride Xwayland
+    #       (matrix rows recorded explicitly, run-matrix.sh). The Qt6 wayland
+    #       and chromium rows work on pixman via wl_shm. The 3c phoc pin
+    #       below removes the IM-teardown segfault that otherwise kills the
+    #       session on every grab teardown. /etc/default/phosh-dev-session
+    #       overrides any of these without an image rebuild.
+    #     - dbus-run-session provides the session bus shared by phosh, phoc,
+    #       fcitx5 and the harness-spawned apps; the wrapper records
+    #       DBUS_SESSION_BUS_ADDRESS into /run/user/0/phosh-session.env so
+    #       SSH-side processes can join the session.
+    #     - GSETTINGS_BACKEND=keyfile + the pre-seeded keyfile below disable
+    #       the lock screen FOR THIS DEV VM ONLY (belt); phosh -U (braces)
+    #       starts the shell unlocked for automated typing. The dconf factory
+    #       defaults — and the safety package's lock-enabled=true contract —
+    #       are untouched.
+    cat > "$ROOTFS_DIR/etc/systemd/system/phosh.service" <<'EOF'
+# ArchMage DEV IMAGE ONLY (03-01): phosh graphical session for headless QEMU.
+# Not shipped to devices: real phosh startup goes through the upstream
+# mechanism; this unit exists so the IME harness (test/ime/ime-verify.sh)
+# can drive a real phosh/phoc session in the throwaway dev VM.
+[Unit]
+Description=Phosh graphical session (ArchMage dev-image QEMU entry)
+Wants=systemd-logind.service
+After=systemd-logind.service
+
+[Service]
+User=root
+Environment=WLR_BACKENDS=headless
+Environment=WLR_RENDERER=pixman
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=GSETTINGS_BACKEND=keyfile
+# Dev-iteration override (no image rebuild): e.g.
+#   printf 'WLR_BACKENDS=headless\n' > /etc/default/phosh-dev-session
+EnvironmentFile=-/etc/default/phosh-dev-session
+ExecStartPre=/usr/bin/mkdir -p /run/user/0
+ExecStartPre=/usr/bin/chmod 700 /run/user/0
+ExecStart=/usr/bin/dbus-run-session -- /usr/local/bin/phosh-dev-session
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    # Deliberately NOT enabled into multi-user: the session must start AFTER
+    # the first SSH login. Two live-observed ordering constraints:
+    #   1. user-runtime-dir@0.service (first login) empties /run/user/0
+    #      (tmpfiles D rule) — a session started at boot loses its
+    #      phosh-session.env AND its Wayland socket at the first login
+    #      (observed live 03-01);
+    #   2. harness semantics: test/ime/ime-verify.sh owns `systemctl start
+    #      phosh` once SSH is ready (the plan's flow: SSH ready → start
+    #      session). loginctl enable-linger (below) keeps /run/user/0 alive
+    #      across the harness's short-lived SSH connections, whose churn
+    #      would otherwise tear the runtime dir — and the socket — down.
+    install -dm755 "$ROOTFS_DIR/var/lib/systemd/linger"
+    touch "$ROOTFS_DIR/var/lib/systemd/linger/root"
+    install -dm755 "$ROOTFS_DIR/usr/local/bin"
+    cat > "$ROOTFS_DIR/usr/local/bin/phosh-dev-session" <<'EOF'
+#!/bin/bash
+# ArchMage dev-image session script: record the session bus for SSH-side
+# processes, then run phoc; phoc execs phosh via -E once Wayland is up.
+printf 'DBUS_SESSION_BUS_ADDRESS=%s\n' "$DBUS_SESSION_BUS_ADDRESS" > /run/user/0/phosh-session.env
+exec /usr/bin/phoc -C /etc/phosh/phoc.ini -E /usr/local/bin/phosh-dev-shell
+EOF
+    cat > "$ROOTFS_DIR/usr/local/bin/phosh-dev-shell" <<'EOF'
+#!/bin/bash
+# phosh (>= 0.44 layout: /usr/lib/phosh/phosh) is a pure Wayland client of
+# phoc; -U starts unlocked for automated IME testing (dev-image only).
+export XDG_SESSION_TYPE=wayland
+exec /usr/lib/phosh/phosh -U
+EOF
+    chmod 755 "$ROOTFS_DIR/usr/local/bin/phosh-dev-session" \
+        "$ROOTFS_DIR/usr/local/bin/phosh-dev-shell"
+    # Portrait phone geometry for the headless output (scale 1 keeps test
+    # coordinate math simple; the shipped default scale 2 is for DSI panels).
+    mkdir -p "$ROOTFS_DIR/etc/phosh"
+    cat > "$ROOTFS_DIR/etc/phosh/phoc.ini" <<'EOF'
+# ArchMage dev-image phoc config: headless output in phone-like portrait.
+[output:HEADLESS-1]
+mode = 720x1440
+scale = 1
+EOF
+    # Lockscreen-off belt for the dev VM (see 4b): root's GSettings keyfile
+    # backend store. The factory dconf database keeps lock-enabled=true.
+    mkdir -p "$ROOTFS_DIR/root/.config/glib-2.0/settings"
+    cat > "$ROOTFS_DIR/root/.config/glib-2.0/settings/keyfile" <<'EOF'
+# ArchMage dev-image only: lockscreen disabled for automated IME testing
+# (GSETTINGS_BACKEND=keyfile is set by phosh.service; phosh -U is the
+# second, independent unlock). Device factory defaults stay under dconf
+# with the safety package's lock-enabled=true.
+[org/gnome/desktop/screensaver]
+lock-enabled=false
+EOF
 
     # 5) One-time smoke key injection. Root gets password field '*' (no
     #    password login possible, pubkey auth unaffected — 01-02 decision).
