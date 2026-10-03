@@ -252,6 +252,8 @@ jobs:
                 # Install into the container (ephemeral) so later packages
                 # resolve this one as a dependency.
                 mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
+                echo "DIAG name=$name own=${#own[@]} built=${#built[@]} PKGDEST=$PKGDEST"
+                ls -la "$PKGDEST" 2>/dev/null | tail -4 || true
                 if [ "${#built[@]}" -gt 0 ]; then
                   repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}"
                   pacman -Sy --noconfirm >/dev/null
