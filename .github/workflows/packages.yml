@@ -70,6 +70,9 @@ jobs:
         id: detect
         run: |
           set -euo pipefail
+          # Job-container git needs this (ownership mismatch vs workspace
+          # mount); without it every git probe below silently returns empty.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # Differential base per event type (idempotent across triggers):
           #   push              -> github.event.before (previous tip of main;
           #                        zero-SHA on first push / force push -> full build)
@@ -81,9 +84,13 @@ jobs:
           case "${GITHUB_EVENT_NAME}" in
             push)
               base="${{ github.event.before }}"
-              if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ]; then
-                mapfile -t changed < <(git diff --name-only "$base" "$GITHUB_SHA")
+              # A failed diff (shallow/ownership/object issues) must fall
+              # back to a FULL build, never to a silently empty list.
+              if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] \
+                 && changed_raw="$(git diff --name-only "$base" "$GITHUB_SHA" 2>/dev/null)"; then
+                mapfile -t changed <<< "$changed_raw"
               else
+                echo "::notice::git diff unavailable — full build"
                 mapfile -t changed < <(git ls-files)
               fi
               ;;
