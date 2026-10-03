@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "target": "archmage-qemu-x86_64-perf",
+  "arch": "x86_64",
+  "accel": "kvm",
+  "tier": "qemu-kvm",
+  "started_at": "2026-10-03T06:04:54Z",
+  "boot_seconds": 8,
+  "source": "qemu",
+  "metrics": {
+    "systemd_analyze_kernel_s": 0.649,
+    "systemd_analyze_userspace_s": 2.742,
+    "mem_available_mb": 1553,
+    "services_running": 11,
+    "cold_start": {
+      "user@0.service": 0.153,
+      "systemd-networkd.service": 0.152,
+      "systemd-journald.service": 0.146,
+      "systemd-logind.service": 0.046,
+      "systemd-resolved.service": 0.045,
+      "phosh.service": 1
+    }
+  },
+  "assertions": [
+    {
+      "name": "ssh_ready",
+      "status": "pass",
+      "details": "SSH ready at 127.0.0.1:2223 after 8s (boot mode: direct-kernel); boot_seconds value is informational-only",
+      "informational": false
+    },
+    {
+      "name": "no_failed_units",
+      "status": "pass",
+      "details": "systemctl --failed --no-legend -> empty",
+      "informational": false
+    },
+    {
+      "name": "systemd_analyze_collected",
+      "status": "pass",
+      "details": "systemd-analyze collected: kernel=0.649s userspace=2.742s (informational-only; critical-chain artifact archived)",
+      "informational": false
+    },
+    {
+      "name": "mem_available_collected",
+      "status": "pass",
+      "details": "MemAvailable collected: 1553MB (informational-only)",
+      "informational": false
+    },
+    {
+      "name": "cgtop_collected",
+      "status": "pass",
+      "details": "systemd-cgtop one-shot sample archived (per-unit RSS lives in the artifact only — not a metrics-schema field, per plan)",
+      "informational": false
+    },
+    {
+      "name": "services_running_collected",
+      "status": "pass",
+      "details": "running service count collected: 11 (informational-only)",
+      "informational": false
+    },
+    {
+      "name": "blame_cold_start_collected",
+      "status": "pass",
+      "details": "cold-start blame collected for 5 running unit(s) (informational-only; absent units honestly omitted)",
+      "informational": false
+    },
+    {
+      "name": "phosh_cold_start_collected",
+      "status": "pass",
+      "details": "phosh session activation collected: 1s to Wayland socket (harness-started, 2s poll granularity; journal artifact archived; real-panel GUI cold start is 33/DEVICE_REQUIRED)",
+      "informational": false
+    }
+  ],
+  "status": "pass",
+  "artifacts": {
+    "serial_log": "test/results/20261003T060454Z/serial.log",
+    "journal": "test/results/20261003T060454Z/journal.log"
+  }
+}

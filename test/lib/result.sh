@@ -22,7 +22,14 @@
 #   "status": "pass|fail",           # fail iff any GATING assertion failed;
 #                                    # informational assertions never gate
 #   "artifacts": {"serial_log": "test/results/<ts>/serial.log",
-#                 "journal": "test/results/<ts>/journal.log"}
+#                 "journal": "test/results/<ts>/journal.log"},
+#   "source": "qemu|device"|null,    # 04-02 additive: measurement source
+#                                    # (PERF-01 reserved device face); null
+#                                    # when unset — pre-04-02 callers are
+#                                    # untouched and read null
+#   "metrics": {...}|null            # 04-02 additive: pre-assembled metrics
+#                                    # object literal (perf.json); null when
+#                                    # unset
 # }
 #
 # Function API:
@@ -34,6 +41,11 @@
 #                qemu-kvm for the KVM-required Phase 3 cases)
 #   result_assert <name> <pass|fail> <details> [informational]
 #   result_set_boot_seconds <int-seconds>
+#   result_set_source <qemu|device>   04-02 additive: measurement source for
+#                the PERF-01 schema (default empty -> JSON null)
+#   result_set_metrics <json-object-literal>  04-02 additive: store an
+#                already-assembled JSON object literal emitted as the top
+#                level "metrics" field (default unset -> JSON null)
 #   result_finish            (writes <json-name>, updates latest, sets RESULT_STATUS)
 
 _result_die() {
@@ -48,6 +60,8 @@ RESULT_TIER="qemu"
 RESULT_JSON="smoke.json"
 RESULT_STARTED_AT=""
 RESULT_BOOT_SECONDS=""
+RESULT_SOURCE=""
+RESULT_METRICS=""
 RESULT_DIR=""
 RESULT_ASSERT_FILE=""
 RESULT_STATUS=""
@@ -67,6 +81,8 @@ result_begin() {
     RESULT_JSON=$json_name
     RESULT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     RESULT_BOOT_SECONDS=""
+    RESULT_SOURCE=""
+    RESULT_METRICS=""
     ts=$(date -u +%Y%m%dT%H%M%SZ)
     RESULT_DIR=$root/$ts
     mkdir -p "$RESULT_DIR"
@@ -116,6 +132,31 @@ result_set_boot_seconds() {
     RESULT_BOOT_SECONDS="${1:?seconds required}"
 }
 
+# result_set_source <qemu|device>
+# 04-02 additive (PERF-01): the measurement source carried as the top-level
+# "source" field. Empty (the default) emits JSON null, so every pre-04-02
+# call site (smoke/rollback/ime/waydroid) keeps its exact former JSON shape
+# plus two additive null fields.
+result_set_source() {
+    local source="${1:?source required (qemu|device)}"
+    case "$source" in
+        qemu|device) ;;
+        *) _result_die "result_set_source: source must be qemu|device, got '$source'" ;;
+    esac
+    RESULT_SOURCE=$source
+}
+
+# result_set_metrics <json-object-literal>
+# 04-02 additive (PERF-01): stores an ALREADY-ASSEMBLED JSON object literal
+# (built by the caller with jq -n) emitted verbatim as the top-level
+# "metrics" field. Unset (the default) emits JSON null.
+result_set_metrics() {
+    local metrics="${1:?metrics object literal required}"
+    printf '%s' "$metrics" | jq -e 'type == "object"' >/dev/null 2>&1 ||
+        _result_die "result_set_metrics: argument is not a JSON object literal: '$metrics'"
+    RESULT_METRICS=$metrics
+}
+
 # result_finish
 # Assemble the result JSON (named by result_begin's json-name argument) from
 # the recorded assertions, set the overall status (fail iff any
@@ -124,7 +165,7 @@ result_set_boot_seconds() {
 # symlink at the new run directory. Sets RESULT_STATUS; returns 0 either
 # way — the caller decides the process exit code.
 result_finish() {
-    local root ts fails status boot_json relroot
+    local root ts fails status boot_json relroot source_json metrics_json
     [ -n "$RESULT_ASSERT_FILE" ] || _result_die "result_finish called before result_begin"
     root=${RESULT_DIR%/*}
     ts=${RESULT_DIR##*/}
@@ -142,6 +183,19 @@ result_finish() {
         boot_json=null
     fi
 
+    # 04-02 additive fields: unset source/metrics emit JSON null (the
+    # pre-04-02 contract keeps schema_version 1 and every former key).
+    if [ -n "$RESULT_SOURCE" ]; then
+        source_json=$(jq -n --arg s "$RESULT_SOURCE" '$s')
+    else
+        source_json=null
+    fi
+    if [ -n "$RESULT_METRICS" ]; then
+        metrics_json=$RESULT_METRICS
+    else
+        metrics_json=null
+    fi
+
     jq -n \
         --arg target "$RESULT_TARGET" \
         --arg arch "$RESULT_ARCH" \
@@ -149,6 +203,8 @@ result_finish() {
         --arg tier "$RESULT_TIER" \
         --arg started_at "$RESULT_STARTED_AT" \
         --argjson boot_seconds "$boot_json" \
+        --argjson source "$source_json" \
+        --argjson metrics "$metrics_json" \
         --slurpfile assertions "$RESULT_ASSERT_FILE" \
         --arg status "$status" \
         --arg serial_log "$relroot/$ts/serial.log" \
@@ -160,6 +216,8 @@ result_finish() {
           tier: $tier,
           started_at: $started_at,
           boot_seconds: $boot_seconds,
+          source: $source,
+          metrics: $metrics,
           assertions: $assertions,
           status: $status,
           artifacts: {serial_log: $serial_log, journal: $journal}}' \
