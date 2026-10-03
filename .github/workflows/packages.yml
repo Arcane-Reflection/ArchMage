@@ -46,6 +46,10 @@ jobs:
           # GH Actions docker blocks Landlock; pacman 7 sandbox cannot be satisfied
           # inside job containers (01-02 decision) — container-own pacman only.
           grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
+          # ALARM's makepkg.conf defaults PKGEXT to .pkg.tar.xz (armv7 legacy);
+          # the whole pipeline (matching, repo-add, consumers) expects zstd.
+          # Appended LAST so it wins when makepkg sources the conf.
+          printf "\n# ArchMage: zstd packages on aarch64 (pipeline expectation)\nPKGEXT='.pkg.tar.zst'\n" >> /etc/makepkg.conf
           pacman-key --init
           pacman-key --populate archlinuxarm
           # base-devel image already has most of this; --needed keeps it idempotent.
@@ -252,8 +256,6 @@ jobs:
                 # Install into the container (ephemeral) so later packages
                 # resolve this one as a dependency.
                 mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
-                echo "DIAG name=$name own=${#own[@]} built=${#built[@]} PKGDEST=$PKGDEST"
-                ls -la "$PKGDEST" 2>/dev/null | tail -4 || true
                 if [ "${#built[@]}" -gt 0 ]; then
                   repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}"
                   pacman -Sy --noconfirm >/dev/null
@@ -285,9 +287,13 @@ jobs:
           # earlier runs (unchanged dirs), so the staging repo stays
           # complete for consumers.
           mapfile -t pkgfiles < <(find "$PKGDEST" -maxdepth 1 -name '*.pkg.tar.zst' | sort)
-          if [ "${#pkgfiles[@]}" -gt 0 ]; then
-            cp -v "${pkgfiles[@]}" staging-repo/
+          # Empty-pkgs runs used to publish an empty signed DB that
+          # downstream consumers accepted as the repo. Never again.
+          if [ "${#pkgfiles[@]}" -eq 0 ]; then
+            echo "::error::no .pkg.tar.zst in PKGDEST — refusing to publish an empty staging DB"
+            exit 1
           fi
+          cp -v "${pkgfiles[@]}" staging-repo/
 
           ephemeral=no
           on_main=no
