@@ -194,6 +194,16 @@ jobs:
           set -euo pipefail
           mkdir -p "$SRCDEST" "$PKGDEST" build-logs
           chown -R builder:builder "$GITHUB_WORKSPACE/.cache"
+          # In-container local repo: makepkg -s resolves deps via `pacman -S`,
+          # which consults SYNC databases only — `pacman -U`-installed leaves
+          # are invisible to it (run 37111720534: umbrella failed pass 2 with
+          # "target not found" despite installed leaves). CI-only repo section
+          # (SigLevel Never here; never in any shipped config).
+          LOCALREPO="$GITHUB_WORKSPACE/.local-repo"
+          mkdir -p "$LOCALREPO"
+          grep -q '^\[archmage-local\]' /etc/pacman.conf || printf '\n[archmage-local]\nSigLevel = Never\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
+          repo-add "$LOCALREPO/archmage-local.db.tar.zst" >/dev/null
+          pacman -Sy --noconfirm >/dev/null
           mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
           # Leaf-first retry loop: in-tree meta packages (e.g. the
           # archmage-cn umbrella depends on archmage-cn-*) are
@@ -240,6 +250,8 @@ jobs:
                 # resolve this one as a dependency.
                 mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
                 if [ "${#built[@]}" -gt 0 ]; then
+                  repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}" >/dev/null
+                  pacman -Sy --noconfirm >/dev/null
                   pacman -U --noconfirm "${built[@]}"
                 fi
               else
