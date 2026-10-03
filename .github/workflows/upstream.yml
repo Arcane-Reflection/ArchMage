@@ -31,6 +31,13 @@ on:
     # Weekly (Monday 04:09 UTC) — adds the drop/rename check.
     - cron: "9 04 * * 1"
   workflow_dispatch:
+  push:
+    # The gate-rule files are re-validated on every push touching them
+    # (MAINT-02: the rules and the workflow boundary are machine-checked).
+    paths:
+      - "tools/ai-rules/**"
+      - "tools/checks/**"
+      - ".github/workflows/upstream.yml"
 
 permissions:
   contents: write # oldver.txt baseline commit-back
@@ -42,7 +49,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-gates:
+    # MAINT-02 (Task 3): call-a-human.yaml schema + exact six-gate set, and
+    # the workflow-boundary scan (no block-gate token in any workflow).
+    # Runs on push (rule files), before the daily battery, and on demand.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate call-a-human rules + workflow boundary (archlinux:base)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/work -w /work \
+            archlinux:base bash -c '
+              set -euo pipefail
+              pacman -Sy --noconfirm python-yaml >/dev/null 2>&1
+              bash tools/checks/validate-call-a-human.sh
+              bash tools/checks/assert-gate-boundary.sh
+            '
+
   upstream:
+    needs: validate-gates
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

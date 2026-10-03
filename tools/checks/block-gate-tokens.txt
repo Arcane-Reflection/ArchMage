@@ -1,0 +1,28 @@
+# block-gate-tokens.txt — literal tokens that mean a workflow is touching a
+# BLOCK gate of tools/ai-rules/call-a-human.yaml (stable_signing / key_ops).
+# One token per line; blank lines and #-comments ignored. Scanned with
+# fixed-string search (grep -F) by tools/checks/assert-gate-boundary.sh —
+# a hit in any .github/workflows/*.yml fails the scan (exit 1).
+#
+# Token ↔ gate semantics (this list is the machine-checkable SUBSET of the
+# block-gate triggers, stable-channel specific by design):
+#   stable_signing → the stable promotion ceremony, the stable keyring
+#     ceremony/artifacts, the stable repository DB, stable-key secret names;
+#   key_ops → offline master-key generation flags and private-key export
+#     (UPDATE-03: the stable signing chain's keys never enter automation).
+#
+# Deliberately NOT listed (the image-signing face is a DIFFERENT, documented
+# automation-key surface — image.yml signs nightly artifacts with ephemeral
+# or image-scoped keys): "detach-sign", "GPG_PASSPHRASE", "GPG_PRIVATE_KEY",
+# "--quick-generate-key", "repo-add". Touching the STABLE channel is the red
+# line; do not add those tokens here, and do not "fix" a boundary failure by
+# renaming a stable operation — the gate is the semantics, not the spelling.
+
+promote-staging --real
+export-keyring
+archmage-stable.db
+[archmage-stable]
+ARCHMAGE_STABLE_FINGERPRINT
+STABLE_KEY_FINGERPRINT
+--full-generate-key
+--export-secret-keys

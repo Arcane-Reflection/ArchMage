@@ -1,0 +1,101 @@
+# =============================================================================
+# call-a-human.yaml — MAINT-02 machine-readable human gates (plan 04-01)
+# =============================================================================
+#
+# SEMANTIC SOURCE: STRATEGY.md §8 "AI 自动化维护策略" (verbatim):
+#
+#   - 可自动化(约七成机械工作):上游跟踪与 rebase、CI 构建失败修复循环、
+#     changelog 生成、issue 初步分诊。
+#   - 人工门禁(永远不交):stable 仓库签名发布、密钥管理、上游社交
+#     (补丁以人名义提交)。
+#   - 流水线:CI 构建 → AI 修复循环 → staging 仓库泡 3–7 天 →
+#     人工审核 + 手动签名 → stable。
+#   - 方向性变更(改本文件)永远人工。
+#
+# This file is the BOUNDARY of any AI fix loop (MAINT-02's meaning): an
+# agent performing mechanical work MUST consult these gates first, stop
+# at `block` gates, produce issue text (not fixes) at `open_issue` gates,
+# and hand `require_human` gates to a person. Machine checks:
+#   tools/checks/validate-call-a-human.sh   (schema + exact gate set)
+#   tools/checks/assert-gate-boundary.sh    (workflows never touch block
+#                                            gates; token list:
+#                                            tools/checks/block-gate-tokens.txt)
+# CI re-checks both on every push and daily run
+# (.github/workflows/upstream.yml). Agent entry point: .claude/CLAUDE.md.
+
+version: 1
+
+gates:
+  - id: stable_signing
+    trigger: >-
+      Any operation that signs or publishes the stable channel: repo-add or
+      any signing call against the stable repository DB, stable promotion
+      (promote-staging --real), stable keyring assembly or export
+      (export-keyring / archmage.gpg), or moving a package from staging to
+      stable.
+    action: block
+    source: "STRATEGY §8"
+    rationale: >-
+      Stable repo signing and release is a named human gate ("stable 仓库
+      签名发布" — 永远不交); the signing ceremony stays on the maintainer
+      host (UPDATE-03: keys never enter automation; the pipeline is CI →
+      fix loop → staging 3-7 days → human review + manual signing → stable).
+
+  - id: key_ops
+    trigger: >-
+      Generating, importing, trusting, exporting or deleting any pacman/GPG
+      key of the repository signing chain (stable or staging master keys,
+      keyring mutations, private-key export); automation-owned image-signing
+      keys (ephemeral nightly keys) are the documented exception, not the
+      signing chain.
+    action: block
+    source: "STRATEGY §8"
+    rationale: >-
+      Key management is a named human gate ("密钥管理" — 永远不交;
+      UPDATE-03: keys never enter automation).
+
+  - id: direction_change
+    trigger: >-
+      Editing STRATEGY.md, the roadmap (.planning/ROADMAP.md), phase
+      objectives, or otherwise changing product/technical direction
+      (stage ladder, reuse principles, hardware strategy).
+    action: block
+    source: "STRATEGY §8"
+    rationale: >-
+      "方向性变更(改本文件)永远人工" — direction-level edits are
+      human-only by definition.
+
+  - id: overlay_size
+    trigger: >-
+      The overlay package count exceeds 50, or a new package proposal would
+      push it past that line.
+    action: open_issue
+    source: "STRATEGY §8"
+    rationale: >-
+      STRATEGY §4 复用原则 (一切非 CN 差异永远跟上游,不 fork): a growing
+      overlay is a maintenance-cost red flag — warn by opening an issue for
+      human triage (reuse review), never silently absorb more packages.
+
+  - id: upstream_break
+    trigger: >-
+      An upstream drop/rename breaks an ArchMage meta or vendored
+      dependency (weekly drop/rename check, tools/nvchecker/
+      expected-deps.txt).
+    action: open_issue
+    source: "STRATEGY §8"
+    rationale: >-
+      STRATEGY §4 生死线: never fork upstream to compensate — the honest
+      automated action is a broken-link issue for a human decision (pick up
+      packaging, switch the dependency, or drop the feature).
+
+  - id: device_ops
+    trigger: >-
+      fastboot/adb writes to a real device, flashing, partition or slot
+      mutation, or any other physical-device write operation.
+    action: require_human
+    source: "STRATEGY §8"
+    rationale: >-
+      QEMU-only automation boundary (phase-wide convention "33 =
+      DEVICE_REQUIRED"): device-side actions run by a human at the bench
+      (flash/op6 layers enforce their own require_backup gates); CI never
+      touches hardware.

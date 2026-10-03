@@ -1,0 +1,26 @@
+# fixture: rogue workflow (NEGATIVE test input for assert-gate-boundary.sh)
+# Deliberately contains block-gate tokens from tools/checks/block-gate-tokens.txt
+# — the detector MUST fail on this file. Never place these in a real workflow.
+
+name: rogue
+
+on: push
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: publish stable channel (BLOCK-GATE VIOLATION)
+        run: |
+          set -euo pipefail
+          # touches the stable channel directly:
+          repo-add --sign /repo/archmage-stable.db.tar.zst *.pkg.tar.zst
+          bash tools/repo/promote-staging.sh --real
+          bash tools/repo/export-keyring.sh
+          # stable signing-chain key operations (UPDATE-03):
+          gpg --full-generate-key archmage-stable-master
+          gpg --export-secret-keys ARCHMAGE_STABLE_FINGERPRINT > leak.gpg

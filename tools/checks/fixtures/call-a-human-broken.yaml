@@ -1,0 +1,39 @@
+# fixture: broken call-a-human rules (NEGATIVE test input for
+# validate-call-a-human.sh) — MUST FAIL the validator.
+# Two deliberate defects:
+#   1. missing the device_ops gate (gate set must be exactly the six);
+#   2. overlay_size carries an action outside the allowed enum
+#      (auto_fix is not block/open_issue/require_human).
+
+version: 1
+
+gates:
+  - id: stable_signing
+    trigger: any stable channel repo-add/signing
+    action: block
+    source: "STRATEGY §8"
+    rationale: keys and stable signing never enter automation
+
+  - id: key_ops
+    trigger: generate/import/trust any repo signing key
+    action: block
+    source: "STRATEGY §8"
+    rationale: UPDATE-03
+
+  - id: direction_change
+    trigger: edit STRATEGY.md / roadmap
+    action: block
+    source: "STRATEGY §8"
+    rationale: direction changes are human-only
+
+  - id: overlay_size
+    trigger: overlay package count > 50
+    action: auto_fix
+    source: "STRATEGY §8"
+    rationale: broken on purpose — must fail the action enum
+
+  - id: upstream_break
+    trigger: upstream drop/rename breaks a meta dependency
+    action: open_issue
+    source: "STRATEGY §8"
+    rationale: never auto-fork upstream
