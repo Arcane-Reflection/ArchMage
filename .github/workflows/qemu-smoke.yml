@@ -176,7 +176,7 @@ jobs:
           # a flat, stable layout (smoke.json, discipline.json, serial.log,
           # journal.log, console.log, pacman-syu.log).
           if [ -d test/results/latest ]; then
-            cp -L test/results/latest/. smoke-results/
+            cp -rL test/results/latest/. smoke-results/
           else
             echo "no test/results/latest — smoke never produced results" >&2
           fi
