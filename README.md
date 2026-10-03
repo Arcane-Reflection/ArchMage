@@ -8,6 +8,16 @@
 
 技术策略与阶段路线见 [STRATEGY.md](STRATEGY.md);贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/FLASHING.md](docs/FLASHING.md) | 刷机指南(OP6,用户视角):资产校验、备份仪式、分层步骤与失败重入;真机执行面 device-deferred 逐条标注 |
+| [docs/ROLLBACK.md](docs/ROLLBACK.md) | btrfs 快照回滚指南:引导菜单回滚、固化新默认、已知缺口(含 grub.cfg 重建告警)与回滚后自检 |
+| [docs/IME.md](docs/IME.md) | 输入法(fcitx5):默认架构、会话用法、六行验证矩阵现状(2/6 QEMU 绿,缺口逐条标注) |
+| [docs/REPO-CHANNELS.md](docs/REPO-CHANNELS.md) | 双通道仓库与 stable 签名仪式(人工门禁的操作说明书) |
+| [test/perf/baseline-latest.json](test/perf/baseline-latest.json) | QEMU 性能基线(机器可读 JSON,**informational-only**——不设阈值门禁;`source` 字段区分 `qemu`/`device` 采集面,真机面 device-deferred) |
+
 ## 目录结构
 
 | 目录 | 用途 |

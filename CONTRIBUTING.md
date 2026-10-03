@@ -51,3 +51,35 @@ makepkg -sf --noconfirm              # 本地构建(arch=any,x86_64 主机即可
 - 上游 ALARM 仓库段:`SigLevel Required DatabaseOptional`(ALARM 不分发签名数据库,强制兼容项)。
 - ArchMage 自有仓库段:`SigLevel Required`。
 - 任何 shipped 配置中出现 `TrustAll` = 立即拒绝(PITFALLS 2)。
+
+## 7. 自动化维护与 AI 边界
+
+本仓库的日常维护大量交给自动化(CI 与 AI 修复循环)。**AI 能做什么、
+什么时候必须停下来叫人**,由机器可读规则文件
+[`tools/ai-rules/call-a-human.yaml`](tools/ai-rules/call-a-human.yaml) 定义
+(语义源:STRATEGY §8;CI 每次推送与每日运行都会校验规则文件本身,并断言
+没有任何 workflow 步骤触碰 block 门)。
+
+三档门,贡献者同样需要知道:
+
+| 档 | 含义 | 具体门 |
+| --- | --- | --- |
+| `block` | 自动化(含 AI)永远不碰 | stable 通道签名发布、任何签名链密钥操作、方向性变更(改 STRATEGY/路线图) |
+| `open_issue` | 自动化只开/更新 issue,绝不自行"修复" | overlay 包数超过 50(复用原则预警)、上游删包/改名断链(**绝不自动 fork 上游补救**) |
+| `require_human` | 转人工执行 | fastboot/adb 等一切真机写操作(QEMU-only 自动化边界) |
+
+**上游跟踪 bot 的产物怎么读**(每日 nvchecker 运行,`.github/workflows/upstream.yml`):
+
+- 漂移以 issue 呈现,标题格式 `[nvchecker] <pkg>: <旧版本> -> <新版本>`;
+  同名 open issue 只更新不重开。
+- vendored 链(overlay/apps 自有打包)的版本漂移会由 bot 开 **re-vendor
+  分支与 patch**(`re-vendor/<pkg>-<版本>`,附干净环境构建证明)——
+  分支与 patch **仍需人工审阅后才能合入**:机械改 pkgver 可以自动化,
+  "这个上游版本我们跟不跟"永远是人决定。
+- 每周 drop/rename 检查比对我们声明的依赖清单与上游包目录,命中即开
+  "meta 依赖断链" issue。
+
+**性能基线数据**(test/perf/baseline-latest.json 与 perf.yml 每日运行)
+是 **informational-only**:数字受 runner/TCG 噪声影响,仓库不设任何性能
+阈值门禁。欢迎在 issue/PR 里附上你机器上的采集结果与运行环境(accel、
+CPU、内存),作为对照数据;不会因此产生任何"不达标"判定。
