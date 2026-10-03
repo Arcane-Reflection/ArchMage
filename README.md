@@ -190,6 +190,35 @@ bash test/rollback-x86_64.sh --repo-dir test/build/staging-repo --timeout 900
 
 一条命令完成:构建 btrfs 平坦子卷布局 dev 镜像(`@ / @root / @var(nodatacow) / @snapshots / @srv / @tmp`,根以默认子卷挂载)→ 纯 GRUB 路径启动(OVMF → ESP fallback loader)→ snap-pac 事务快照(封顶 5、timeline 关)→ 破坏默认条目(`rm /boot/vmlinuz-linux`)→ `grub-reboot` 一次性引导进快照 → 断言内核回到破坏前版本 → `snapper rollback` 恢复默认子卷。结果写入 `test/results/<ts>/rollback.json`(`tier: "qemu"` —— QEMU 绿 ≠ 真机绿;OP6 侧 A/B 槽回滚由 `archmage-btrfs-rollback` 包的 `archmage-rollback` 在真机执行,33/DEVICE_REQUIRED 约定顺延)。需要 KVM(`/dev/kvm` 不可写时首行 stderr 输出 `KVM_REQUIRED:` 并退 34;唯一豁免是 `ARCHMAGE_QEMU_ALLOW_TCG=1` + 更大 `--timeout`)。
 
+## 应用生态:Waydroid(APPS-01)
+
+ArchMage 预装 Waydroid(Android 容器运行时,自持打包:上游 AUR 基底 vendor 进 `overlay/apps/waydroid/`,出处与分歧逐条留档于 [overlay/apps/waydroid/DIVERGENCE.md](overlay/apps/waydroid/DIVERGENCE.md))+ 工厂配置包 `archmage-waydroid-config`(一行初始化 + 休眠安全出厂)。
+
+**演示定位(先读这段,STRATEGY §2/§10 口径)**:应用生态能力是**演示定位,不是日用承诺**。Waydroid 在这里用于证明「Linux 手机可以跑 Android 应用生态」,适合演示、测试与轻度应用;**不以微信日用为目标,不承诺微信体验**。微信 Linux 版是扫码绑定的桌面伴生端,不能作主微信端;Waydroid 里常驻微信有**风控/封号/冻结断消息**风险;银行与支付类 App 对 root/容器检测**拒跑是常态**——不要把敏感应用装进容器。对外叙事请原样传递:「演示能力,不承诺微信/支付体验」。
+
+**一行初始化**(镜像内,幂等;`--dry-run` 打印动作序列):
+
+```bash
+sudo archmage-waydroid-init                        # 默认走官方 OTA
+sudo archmage-waydroid-init --dry-run              # 审计:只打印动作序列
+sudo archmage-waydroid-init --mirror https://<ota兼容镜像站>/        # 镜像站覆盖
+sudo archmage-waydroid-init --image-dir /path/to/offline-images/    # 离线镜像(system.img + vendor.img)
+```
+
+出厂预置的休眠安全配置(`/var/lib/waydroid/waydroid.cfg`,显式写入防上游默认漂移):`suspend_action=freeze`(熄屏冻结容器而非停止)+ `persist.waydroid.suspend=true`(Android 侧熄屏挂起钩子启用)——容器不会把手机待机拖死。镜像站需提供与 ota.waydro.id 相同的 JSON 布局(`.../system/lineage/waydroid_<arch>/VANILLA.json` 与 `.../vendor/waydroid_<arch>/MAINLINE.json`);离线目录即 OTA zip 解出的两个镜像。参数与语义详见包内文档 `/usr/share/doc/archmage-waydroid-config/README`。
+
+**x86_64 KVM 容器冒烟**(tier = qemu-kvm,QEMU 绿 ≠ 真机绿):
+
+```bash
+bash test/waydroid/waydroid-verify.sh --repo-dir test/build/staging-local --timeout 2400
+```
+
+一条命令完成:构建含 waydroid 栈的 btrfs dev 镜像 → Android 系统镜像一次性缓存到宿主 `test/build/waydroid-cache/`(默认 OTA,支持 `ARCHMAGE_WAYDROID_MIRROR` 镜像站覆盖与 `ARCHMAGE_WAYDROID_IMAGE_DIR` 离线目录;缓存命中即跳过下载)→ QEMU(KVM)启动 → 断言 binder 面(`/proc/config.gz` binder 配置 + binderfs 挂载,Arch 内核 rust_binder 形态)→ 预置镜像后 `waydroid init` → phosh 会话内 `waydroid session start` 至 `Session: RUNNING`。结果写入 `test/results/<ts>/waydroid.json`。需要 KVM(`/dev/kvm` 不可写时首行 stderr 输出 `KVM_REQUIRED:` 并退 34;唯一豁免是 `ARCHMAGE_QEMU_ALLOW_TCG=1` + 更大 `--timeout`)。
+
+**OP6 真机面(device-deferred)**:x86_64 冒烟证明的是「binder + lxc 容器栈在 Arch 内核上端到端可用」;OP6 真机内核的 binder 配置**未在真机验证**(需 `/proc/config.gz` 或试挂 binderfs),真机首验按 33/DEVICE_REQUIRED 语义顺延;缺 binder 时回退 `binder_linux-dkms`。
+
+
+
 ## 双通道仓库与 stable 签名(UPDATE-03)
 
 镜像出厂带两个 ArchMage 通道:`[archmage-testing]` 生效(SigLevel Required,CI staging 工件)+ `[archmage-stable]` 注释态预置。staging 工件泡 3–7 天、经人工 review 后,由维护者在**本机**(永不进 CI)执行 stable 签名发布:`tools/repo/promote-staging.sh --real`(逐包 detach-sign + `repo-add -s --include-sigs -k`);keyring 信任锚经离线 key ceremony 产出(`tools/repo/export-keyring.sh` → `archmage-keyring` 包)。完整仪式、密钥介质纪律与客户端切换方法见 **[docs/REPO-CHANNELS.md](docs/REPO-CHANNELS.md)** —— 脚本只做可机械验证的部分,签名动作永远在人手里。

@@ -35,6 +35,13 @@
 #                        / archmage-osk0-shim / environment.d IME defaults /
 #                        fcitx5 profile), and squeekboard is ABSENT from the
 #                        local db (03-01 full-replacement evidence)
+#   waydroid_present     (both kinds) waydroid AND archmage-waydroid-config
+#                        are in the pacman local db and the one-command init
+#                        is installed executable (/usr/bin/
+#                        archmage-waydroid-init) — the APPS-01 machine face
+#                        (03-02; the binder/session runtime face is verified
+#                        live by test/waydroid/waydroid-verify.sh, tier
+#                        qemu-kvm)
 #   btrfs_layout         (qemu-x86_64 only) the rootfs is the 03-03 btrfs
 #                        flat subvolume layout: all six subvolumes (@ @root
 #                        @var @snapshots @srv @tmp) exist; the fstab root
@@ -85,6 +92,7 @@ Usage:
 Full-mode mounted-rootfs assertions (both kinds): android_boot_magic (op6
 only), image_sized, shipping_discipline, phosh_present,
 archmage_cn_in_image, archmage_repo_live, apn_presets_present,
+ime_osk_present (03-01), waydroid_present (03-02),
 repo_channels_present (03-03); btrfs_layout is qemu-x86_64-only (op6
 records not-applicable — device-side btrfs migration deferred).
 
@@ -455,7 +463,35 @@ else
     record ime_osk_present fail "IME OSK contract broken: archmage-fcitx5-osk in db=$osk_db, missing files=[$osk_missing], squeekboard absent=$squeekboard_absent"
 fi
 
-# (f) btrfs flat subvolume layout (03-03, UPDATE-01 machine face; qemu-x86_64
+# (f) Waydroid factory layer made it into the image (03-02, APPS-01 machine
+#     face; both kinds — the OP6 profile carries both packages in
+#     pkgs_include too): waydroid itself AND archmage-waydroid-config in the
+#     local db, plus the one-command init in place with its executable bit.
+#     This is the structural half only — the runtime face (binder ->
+#     waydroid init -> session RUNNING) is verified live under KVM by
+#     test/waydroid/waydroid-verify.sh (tier qemu-kvm; QEMU green != device
+#     green, PITFALLS 4).
+WD_DB_DIR=$MNT/var/lib/pacman/local
+wd_db=no
+for d in "$WD_DB_DIR"/waydroid-*/; do
+    # waydroid's own local-db entry (waydroid-<ver>-<rel>; the glob also
+    # matches archmage-waydroid-config-* — exclude by basename prefix).
+    base=$(basename "$d")
+    case "$base" in
+        waydroid-*) wd_db=yes; break ;;
+    esac
+done
+wdc_db=no
+ls -d "$WD_DB_DIR"/archmage-waydroid-config-*/ >/dev/null 2>&1 && wdc_db=yes
+wd_init=no
+[ -x "$MNT/usr/bin/archmage-waydroid-init" ] && wd_init=yes
+if [ "$wd_db" = yes ] && [ "$wdc_db" = yes ] && [ "$wd_init" = yes ]; then
+    record waydroid_present pass "waydroid + archmage-waydroid-config in local db; /usr/bin/archmage-waydroid-init executable in place (APPS-01 structural face)"
+else
+    record waydroid_present fail "waydroid factory layer broken: waydroid in db=$wd_db, archmage-waydroid-config in db=$wdc_db, init executable=$wd_init"
+fi
+
+# (g) btrfs flat subvolume layout (03-03, UPDATE-01 machine face; qemu-x86_64
 #     only — the op6 rootfs is ext4 until the device-side btrfs migration).
 if [ "$KIND" != qemu-x86_64 ]; then
     record btrfs_layout pass "not-applicable: op6 rootfs is ext4 (device-side btrfs migration deferred; asserted on the qemu-x86_64 image)"
@@ -528,7 +564,7 @@ else
     fi
 fi
 
-# (g) two-channel repo client config (03-03, UPDATE-03 machine face; both
+# (h) two-channel repo client config (03-03, UPDATE-03 machine face; both
 #     kinds — every factory image ships the same channel declaration):
 #     - /etc/pacman.conf carries an ACTIVE [archmage-testing] section whose
 #       SigLevel is Required;

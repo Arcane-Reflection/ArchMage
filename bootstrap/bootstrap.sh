@@ -207,7 +207,11 @@ assert 'archmage-cn' in build_prof.get('pkgs_exclude', []), 'build profile must 
 # squeekboard; the kupfer phosh flavour package set must never pull both —
 # stage-2 installs ours over whatever the flavour stage left, and the
 # pacman transaction's conflict handling removes squeekboard if present).
-OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn', 'archmage-btrfs-rollback', 'archmage-fcitx5-osk')
+# 03-02: waydroid + archmage-waydroid-config ride the same pattern (the
+# Android-in-container runtime + its ArchMage factory layer; the vendored
+# waydroid PKGBUILD lives in overlay/apps/waydroid with its DIVERGENCE
+# ledger, the factory config in overlay/apps/archmage-waydroid-config).
+OVERLAYS = ('archmage-phosh-safety', 'archmage-cn-apn', 'archmage-btrfs-rollback', 'archmage-fcitx5-osk', 'waydroid', 'archmage-waydroid-config')
 for overlay in OVERLAYS:
     assert overlay in prof['pkgs_include'], f'pkgs_include lost {overlay}'
     assert overlay in build_prof.get('pkgs_exclude', []), \
@@ -480,7 +484,7 @@ Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
 SigLevel = Required
 Server = $stage2_server
 EOF
-    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk (SigLevel Required, signed DB verified)"
+    archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk waydroid archmage-waydroid-config (SigLevel Required, signed DB verified)"
     mkdir -p "$KBS_CACHE/pacman-image-cache"
     # 03-01 full OSK replacement: the kupfer phosh flavour stage resolves
     # phosh's phosh-osk-provider dependency to squeekboard (or stevia) in
@@ -498,10 +502,17 @@ EOF
     done
     # Keep this list identical to the canonical profile's pkgs_include in
     # archmage.toml (bootstrap.sh --check asserts the two stay in sync).
+    # 03-02: waydroid resolution note — at execution time (2026-10-02) ALARM's
+    # aarch64 [extra] carries waydroid 1.6.3-1 + the gbinder chain, so pacman
+    # picks the higher pkgver there; the staging repo's vendored 1.5.4-1 chain
+    # (overlay/apps, DIVERGENCE ledger) is the fallback line if ALARM/Arch
+    # drop or lag the chain again. archmage-waydroid-config (depends=waydroid)
+    # always comes from the staging repo.
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
         --noconfirm --needed -Sy archmage-cn archmage-phosh-safety \
-        archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk
+        archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk \
+        waydroid archmage-waydroid-config
 
     # 7) Stage 3 — harden the shipped /etc/pacman.conf.
     archmage_info "stage 3: hardening shipped /etc/pacman.conf"

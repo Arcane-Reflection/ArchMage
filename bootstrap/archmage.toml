@@ -60,16 +60,18 @@ username = "archmage"
 # bootstrap.sh stage 2.
 size_extra_mb = 2000
 # CN defaults umbrella + phosh safety overlay + CN APN presets + btrfs
-# rollback machinery + fcitx5 system keyboard (03-01) from the ArchMage
-# staging repo (CI artifact of packages.yml). NOTE: they are NOT installed
-# by the kbs build itself — see the build profile below and bootstrap.sh for
-# the two-stage design (02-03: archmage-phosh-safety and archmage-cn-apn
-# ride the same stage-2 transaction; 03-03 adds archmage-btrfs-rollback;
-# 03-01 adds archmage-fcitx5-osk). Their presence in the image is asserted
-# by verify-image.sh — safety_config_present class of the discipline
-# detector, apn_presets_present gate, btrfs_layout gate (03-03),
-# ime_osk_present gate (03-01).
-pkgs_include = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn", "archmage-btrfs-rollback", "archmage-fcitx5-osk"]
+# rollback machinery + fcitx5 system keyboard (03-01) + waydroid stack
+# (03-02) from the ArchMage staging repo (CI artifact of packages.yml).
+# NOTE: they are NOT installed by the kbs build itself — see the build
+# profile below and bootstrap.sh for the two-stage design (02-03:
+# archmage-phosh-safety and archmage-cn-apn ride the same stage-2
+# transaction; 03-03 adds archmage-btrfs-rollback; 03-01 adds
+# archmage-fcitx5-osk; 03-02 adds waydroid + archmage-waydroid-config).
+# Their presence in the image is asserted by verify-image.sh —
+# safety_config_present class of the discipline detector, apn_presets_present
+# gate, btrfs_layout gate (03-03), ime_osk_present gate (03-01),
+# waydroid_present gate (03-02).
+pkgs_include = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn", "archmage-btrfs-rollback", "archmage-fcitx5-osk", "waydroid", "archmage-waydroid-config"]
 
 [profiles.archmage-op6-phosh-build]
 # Stage-1 build profile used by `kbs image build` (bootstrap.sh stage 1).
@@ -85,8 +87,8 @@ pkgs_include = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn", "arch
 # key first (full Required discipline, test/mkrootfs-aarch64.sh pattern).
 #
 # pkgs_exclude removes the staging-repo packages (archmage-cn and the
-# 02-03/03-01 overlays) from the parent's pkgs_include during profile
+# 02-03/03-01/03-02 overlays) from the parent's pkgs_include during profile
 # resolution (kbs config/profile.py resolve_profile); bootstrap.sh stage 2
 # installs them with full Required discipline instead.
 parent = "archmage-op6-phosh"
-pkgs_exclude = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn", "archmage-btrfs-rollback", "archmage-fcitx5-osk"]
+pkgs_exclude = ["archmage-cn", "archmage-phosh-safety", "archmage-cn-apn", "archmage-btrfs-rollback", "archmage-fcitx5-osk", "waydroid", "archmage-waydroid-config"]

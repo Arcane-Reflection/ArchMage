@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# archmage-waydroid-init — one-command Waydroid initialization + suspend-safe
+# factory config (03-02, APPS-01). Ships in the archmage-waydroid-config
+# package as /usr/bin/archmage-waydroid-init and runs INSIDE an ArchMage
+# image (root; waydroid's own factory tooling only).
+#
+# What it does (idempotent — safe to re-run any time):
+#   1. Offline/mirror preseed (optional):
+#        - WAYDROID_IMAGE_DIR / --image-dir DIR : copy DIR's system.img +
+#          vendor.img into /etc/waydroid-extra/images — waydroid's own
+#          preinstalled-images path; `waydroid init` then short-circuits the
+#          OTA entirely (system_ota=None, updater disabled — source-verified
+#          against waydroid 1.5.4 tools/actions/initializer.py).
+#        - ARCHMAGE_WAYDROID_MIRROR / --mirror BASE : init runs with
+#          `waydroid init -c BASE/system -v BASE/vendor` (waydroid's built-in
+#          channel override; research A5 — OTA reachability is NOT assumed).
+#   2. `waydroid init` — skipped when the device is already initialized
+#      (/var/lib/waydroid/waydroid.cfg exists).
+#   3. Suspend-safe factory defaults (PITFALLS: a container that stays awake
+#      drags the phone down on screen-off), preset EXPLICITLY against
+#      upstream default drift:
+#        - [waydroid] suspend_action=freeze  (host side: on Android display
+#          timeout the container is FROZEN, not stopped — waydroid.cfg
+#          semantics, research Q2)
+#        - [properties] persist.waydroid.suspend=true (Android side: the
+#          suspend hook itself is enabled; the [properties] section of
+#          waydroid.cfg is merged into waydroid_base.prop at container start
+#          and overrides the image defaults — no running session needed,
+#          unlike `waydroid prop set`, which requires one)
+#
+# Exit codes: 0 success (or dry-run printed) | 1 usage/environment error.
+# (The Phase 3 exit-code contract's 2/33/34 are test-harness codes; this
+# script has no QEMU/device face.)
+#
+# Usage:
+#   archmage-waydroid-init [--image-dir DIR] [--mirror BASE] [--dry-run]
+
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+archmage-waydroid-init — Waydroid 一行初始化 + 休眠安全出厂配置
+
+用法:
+  archmage-waydroid-init [--image-dir 目录] [--mirror 镜像站] [--dry-run]
+
+参数(环境变量同名同义):
+  --image-dir DIR    WAYDROID_IMAGE_DIR:离线镜像目录(含 system.img +
+                     vendor.img),复制进 /etc/waydroid-extra/images 后
+                     waydroid init 自动跳过 OTA。
+  --mirror BASE      ARCHMAGE_WAYDROID_MIRROR:OTA 兼容镜像站基址
+                     (需提供 BASE/system/lineage/waydroid_<arch>/VANILLA.json
+                     与 BASE/vendor/waydroid_<arch>/MAINLINE.json)。
+  --dry-run          只打印动作序列,不做任何修改。
+
+幂等:已初始化则跳过 init,休眠安全配置始终幂等重设。
+EOF
+}
+
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+IMAGE_DIR=${WAYDROID_IMAGE_DIR:-}
+MIRROR=${ARCHMAGE_WAYDROID_MIRROR:-}
+DRY_RUN=no
+ACTIONS=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --image-dir)
+            [ $# -ge 2 ] || { usage >&2; die "--image-dir 需要目录参数"; }
+            IMAGE_DIR=$2
+            shift
+            ;;
+        --mirror)
+            [ $# -ge 2 ] || { usage >&2; die "--mirror 需要基址参数"; }
+            MIRROR=$2
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=yes
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            die "未知参数: $1"
+            ;;
+    esac
+    shift
+done
+
+CFG=/var/lib/waydroid/waydroid.cfg
+PRESEED_DIR=/etc/waydroid-extra/images
+INITIALIZED=no
+[ -f "$CFG" ] && INITIALIZED=yes
+
+# cfg_upsert <file> <section> <key> <value> — idempotent INI upsert for
+# waydroid.cfg (Python configparser layout: [section] + key=value). Keeps
+# comments and unrelated keys; creates the section when missing; replaces an
+# existing key in place; appends the key after the section header otherwise.
+cfg_upsert() {
+    local file=$1 section=$2 key=$3 value=$4
+    python3 - "$file" "$section" "$key" "$value" <<'PYEOF'
+import configparser, io, sys
+path, section, key, value = sys.argv[1:5]
+cp = configparser.ConfigParser(interpolation=None, strict=False)
+cp.optionxform = str  # keep key case exactly as written (props are case-sensitive)
+cp.read(path, encoding="utf-8")
+if not cp.has_section(section):
+    cp.add_section(section)
+cp.set(section, key, value)
+with open(path, "w", encoding="utf-8") as fd:
+    cp.write(fd, space_around_delimiters=False)
+print(f"cfg-upserted: [{section}] {key}={value}")
+PYEOF
+}
+
+# 1) offline preseed: manual image dir -> waydroid's preinstalled path.
+if [ -n "$IMAGE_DIR" ]; then
+    [ -d "$IMAGE_DIR" ] || die "镜像目录不存在: $IMAGE_DIR"
+    [ -f "$IMAGE_DIR/system.img" ] || die "镜像目录缺少 system.img: $IMAGE_DIR"
+    [ -f "$IMAGE_DIR/vendor.img" ] || die "镜像目录缺少 vendor.img: $IMAGE_DIR"
+    ACTIONS+=("preseed: 安装 $IMAGE_DIR/{system.img,vendor.img} -> $PRESEED_DIR/(waydroid init 将跳过 OTA,禁用 updater)")
+fi
+
+# 2) init (or skip when initialized).
+if [ "$INITIALIZED" = yes ]; then
+    ACTIONS+=("init: 跳过(已初始化:$CFG 在档)")
+elif [ -n "$MIRROR" ]; then
+    ACTIONS+=("init: waydroid init -c $MIRROR/system -v $MIRROR/vendor")
+else
+    ACTIONS+=("init: waydroid init(官方 OTA;CN 网络不可达时用 --mirror/--image-dir,见 usage)")
+fi
+
+# 3) suspend-safe factory config (always applied, idempotent).
+ACTIONS+=("suspend-safe: $CFG [waydroid] suspend_action=freeze(熄屏冻结容器而非停止)")
+ACTIONS+=("suspend-safe: $CFG [properties] persist.waydroid.suspend=true(防上游默认漂移,显式预置)")
+
+# --dry-run is an audit action: printable anywhere (the plan's verify runs it
+# from a checkout as an unprivileged user). The root/waydroid requirements
+# gate the EXECUTE path only.
+if [ "$DRY_RUN" = yes ]; then
+    echo "archmage-waydroid-init --dry-run 动作序列:"
+    local_i=0
+    for a in "${ACTIONS[@]}"; do
+        local_i=$((local_i + 1))
+        printf '  %d. %s\n' "$local_i" "$a"
+    done
+    exit 0
+fi
+
+[ "$(id -u)" = 0 ] || die "须以 root 运行(waydroid 的出厂工具语义)"
+command -v waydroid >/dev/null 2>&1 || die "waydroid 未安装(archmage-waydroid-config depends=waydroid)"
+
+# --- execute -----------------------------------------------------------------
+if [ -n "$IMAGE_DIR" ]; then
+    mkdir -p "$PRESEED_DIR"
+    install -m 644 "$IMAGE_DIR/system.img" "$PRESEED_DIR/system.img"
+    install -m 644 "$IMAGE_DIR/vendor.img" "$PRESEED_DIR/vendor.img"
+    echo "preseeded: $PRESEED_DIR/{system.img,vendor.img}"
+fi
+
+if [ "$INITIALIZED" = yes ]; then
+    echo "already initialized — skipping waydroid init"
+else
+    mkdir -p /var/lib/waydroid
+    if [ -n "$MIRROR" ]; then
+        case "$MIRROR" in
+            http://*|https://*) ;;
+            *) die "--mirror 须为 http(s) 基址,得: $MIRROR" ;;
+        esac
+        waydroid init -c "$MIRROR/system" -v "$MIRROR/vendor"
+    else
+        waydroid init
+    fi
+fi
+
+# The suspend-safe preset lands AFTER init (init's setup_config writes the
+# config; our upsert must win). Re-running on an initialized device keeps
+# the same end state, so the ordering is unobservable.
+cfg_upsert "$CFG" waydroid suspend_action freeze
+cfg_upsert "$CFG" properties persist.waydroid.suspend true
+
+echo "suspend-safe factory config applied:"
+grep -E 'suspend_action|persist\.waydroid\.suspend' "$CFG" || true
+echo "next: 启动桌面会话后运行 waydroid session start(或 waydroid show-full-ui)"

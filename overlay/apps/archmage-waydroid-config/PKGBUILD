@@ -1,0 +1,113 @@
+# Maintainer: ArchMage contributors
+#
+# Waydroid factory layer (03-02, APPS-01): one-command initialization +
+# suspend-safe factory defaults + the demo-positioning documentation.
+#
+# Overlay-only boundary (STRATEGY §4): the vendored `waydroid` package
+# (overlay/apps/waydroid) stays byte-faithful to its AUR base — every
+# ArchMage policy delta lives HERE, not in the upstream package. The two
+# packages are separate by design (03-02 plan decision): a vendor refresh
+# can never clobber our factory config, and the vendored package's DIVERGENCE
+# ledger stays "zero functional deltas".
+
+pkgname=archmage-waydroid-config
+pkgver=1
+pkgrel=1
+pkgdesc='Waydroid factory layer: one-command init (archmage-waydroid-init) + suspend-safe defaults + demo-positioning doc (演示定位/微信风控口径)'
+arch=(any)
+url='https://github.com/uMaj35ty/ArchMage'
+license=('MIT')
+depends=('waydroid')
+source=('archmage-waydroid-init')
+sha256sums=('69eafc526eb618acc04e812d22fe15014edadd0b384bb5490e606790a7c2cd9f')
+
+package() {
+    # The one command: init (skipped when already initialized) + explicit
+    # suspend-safe factory config, idempotent, --dry-run printable.
+    install -Dm755 archmage-waydroid-init \
+        "$pkgdir/usr/bin/archmage-waydroid-init"
+
+    # In-package documentation (Chinese; the README risk wording is the
+    # single source the repo README mirrors — T-03-34 expectation-setting).
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'EOF'
+ArchMage Waydroid 工厂层(archmage-waydroid-config)
+====================================================
+
+一行初始化
+----------
+
+sudo archmage-waydroid-init
+
+幂等:已初始化则跳过 init,休眠安全配置始终重设。完整参数见
+`archmage-waydroid-init --help`。
+
+- `--image-dir 目录`(或环境变量 `WAYDROID_IMAGE_DIR`):离线镜像
+  目录(含 system.img 与 vendor.img,即 OTA zip 解出的两个镜像)。
+  镜像被装进 /etc/waydroid-extra/images —— 这是 waydroid 自带的
+  预置镜像路径,`waydroid init` 检测到后直接跳过 OTA 下载并禁用
+  内部 updater(waydroid 1.5.4 源码行为,tools/actions/initializer.py)。
+- `--mirror 基址`(或环境变量 `ARCHMAGE_WAYDROID_MIRROR`):OTA
+  兼容镜像站基址,init 以 `waydroid init -c 基址/system -v 基址/vendor`
+  消费。镜像站需提供与 ota.waydro.id 相同的 JSON 布局:
+  `基址/system/lineage/waydroid_<arch>/VANILLA.json` 与
+  `基址/vendor/waydroid_<arch>/MAINLINE.json`。
+- `--dry-run`:只打印动作序列,不改任何文件(审计用)。
+
+休眠语义(suspend / freeze)
+---------------------------
+
+容器不随熄屏休眠会把手机待机拖死——出厂预置两条(显式写入
+/var/lib/waydroid/waydroid.cfg,防上游默认漂移):
+
+- `[waydroid] suspend_action=freeze`:Android 显示超时后,宿主侧把
+  容器**冻结**(进程全部暂停,零 CPU)而非**停止**(stop 会杀掉全部
+  Android 应用;想要这个语义可自行改成 stop)。
+- `[properties] persist.waydroid.suspend=true`:Android 侧的熄屏挂起
+  钩子保持启用(上游默认即 true;显式预置防默认漂移)。该键经
+  waydroid.cfg 的 [properties] 段在容器启动时并入 waydroid_base.prop,
+  无需已运行的会话(`waydroid prop set` 则要求会话在跑)。
+
+演示定位(重要,先读这里)
+-------------------------
+
+ArchMage 的应用生态能力是**演示定位**,不是日用承诺:
+
+- Waydroid 在这里用于证明「Linux 手机可以跑 Android 应用生态」,
+  适合演示、测试与轻度应用;**不以微信日用为目标,不承诺微信体验**。
+- 微信 Linux 版是扫码绑定的**桌面伴生端**,不能作为主微信端使用;
+  在 Waydroid 里常驻微信有**风控、封号、冻结后断消息**的风险——
+  这是腾讯对容器/非官方环境的常规处置,与 ArchMage 无关、也无法
+  由 ArchMage 承诺或规避(STRATEGY §10 风险登记口径)。
+- 银行与支付类 App 对 root/容器环境做多层检测,**拒跑是常态**;
+  不要把此类敏感应用装进容器(容器逃逸面属 waydroid/lxc 上游安全
+  姿态,本系统不在容器内做安全增强,STRATEGY §2)。
+- 对外叙事口径:演示能力,不承诺微信/支付体验。请把这一句原样
+  传递给任何想看「ArchMage 跑微信」的人。
+
+镜像获取与 A5 预案
+------------------
+
+默认 `waydroid init` 走官方 OTA(ota.waydro.id,镜像实体在
+sourceforge)。CN 网络不可达时(A5 预案)三选一:
+
+1. `--mirror`:自建/第三方 OTA 兼容镜像(见上);
+2. `--image-dir`:手动预置离线镜像目录(OTA zip 解出的
+   system.img + vendor.img);
+3. 直接把两个镜像放进 /etc/waydroid-extra/images/ 后运行本脚本
+   (等价于 2)。
+
+镜像完整性由 waydroid 上游机制保证(OTA JSON 携带 sha256);手动
+镜像请自行核对来源。
+
+OP6 真机面(device-deferred)
+----------------------------
+
+x86_64 开发镜像的冒烟(test/waydroid/waydroid-verify.sh,tier=
+qemu-kvm)已证明:Arch 官方内核的 binder(rust_binder 形态)+
+binderfs + lxc 容器栈端到端可用。**OP6 真机内核的 binder 配置未在
+真机验证**(research spike 5:需读 /proc/config.gz 或试挂 binderfs)。
+真机首验按 33/DEVICE_REQUIRED 语义顺延;若真机内核缺 binder,
+回退方案是 binder_linux-dkms。
+EOF
+}
