@@ -123,6 +123,26 @@ jobs:
           done
           mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]}" 2>/dev/null | sed '/^$/d' | sort -u)
 
+          # A main push that changes no overlay files (e.g. workflow-only)
+          # would otherwise sign and publish an EMPTY staging DB, which
+          # downstream consumers (image.yml resolves the latest successful
+          # packages run) would take as the repo. Fall back to a full build.
+          if [ "${#pkgs[@]}" -eq 0 ] && [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            echo "::notice::no overlay changes on main — full build so the published staging DB stays complete"
+            pkgs=()
+            for f in $(git ls-files); do
+              case "$f" in
+                overlay/*/*)
+                  d="overlay/$(printf '%s' "$f" | cut -d/ -f2,3)"
+                  if [ -f "$d/PKGBUILD" ] && [ ! -f "$d/.ci-defer" ]; then
+                    pkgs+=("$d")
+                  fi
+                  ;;
+              esac
+            done
+            mapfile -t pkgs < <(printf '%s\n' "${pkgs[@]}" 2>/dev/null | sed '/^$/d' | sort -u)
+          fi
+
           # Cache key suffix: package dir names + hash of their PKGBUILDs, so
           # the cache rotates whenever any relevant PKGBUILD changes.
           slug="$(printf '%s' "${pkgs[@]}" | tr -c 'A-Za-z0-9._-' '-')"

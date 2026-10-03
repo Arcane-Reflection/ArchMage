@@ -121,10 +121,10 @@ jobs:
       - name: Shellcheck the harness scripts
         run: |
           set -euo pipefail
-          # shellcheck via the project's Arch Linux ARM build container
-          # (official-distribution package only, T-01-SC). The 01-02 scripts
+          # shellcheck via the official archlinux container (the package is
+          # not in ALARM repos; lint is arch-independent). The 01-02 scripts
           # run the host path on this runner; the lint must not regress it.
-          docker run --rm -v "$PWD:/w" -w /w menci/archlinuxarm:base bash -c \
+          docker run --rm -v "$PWD:/w" -w /w archlinux:base bash -c \
             "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf && \
              pacman -Sy --noconfirm --needed shellcheck >/dev/null && \
              find test tools -name '*.sh' -type f -print0 | xargs -0 -r shellcheck"
@@ -153,6 +153,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
+          # No rootfs means an earlier step failed before mkrootfs — the job
+          # is already red from there; skip instead of a collateral error.
+          # A built rootfs still gets the independent red signal below.
+          if [ ! -d test/build/aarch64/rootfs ]; then
+            echo "::notice::rootfs not built (earlier step failed) — discipline assertion skipped"
+            exit 0
+          fi
           bash tools/checks/assert-shipping-discipline.sh \
             --rootfs-dir test/build/aarch64/rootfs \
             --out test/build/aarch64/discipline.json
