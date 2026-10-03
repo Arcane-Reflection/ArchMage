@@ -1,0 +1,251 @@
+name: perf
+
+# Daily QEMU performance baseline (04-02, PERF-01).
+#
+# Whenever image.yml completes successfully on main, download its
+# qemu-x86_64-image artifact, unpack it, boot it headless in QEMU and run
+# test/perf/perf-x86_64.sh to collect the QEMU-measurable baseline
+# (boot_seconds, systemd-analyze, MemAvailable, running service count,
+# cold start). The collected perf.json is uploaded as an artifact AND
+# committed back over test/perf/baseline-latest.json (the committed JSON is
+# the public machine-readable baseline surface; the repo IS the source).
+#
+# INFORMATIONAL-ONLY (STRATEGY §8 / 04-RESEARCH Q4): the baseline values are
+# NOT threshold-compared anywhere — no gate, no regression verdict, no
+# failure on numbers. QEMU figures carry runner/TCG noise; the hard gates
+# remain boot + SSH + no failed units (asserted by the perf script itself,
+# whose exit code IS this workflow's gate). Runners/TCG variance is why the
+# bot commit lands the fresh JSON verbatim every run instead of diffing.
+#
+# KVM premise (checked explicitly in-job): this workflow relies on GitHub
+# hosted ubuntu runners exposing /dev/kvm (the same premise as
+# android-emulator-runner CI usage). If the premise does not hold on first
+# live run, the documented fallback (04-02 plan verification (d)) is a
+# self-hosted runner or a TCG run with ARCHMAGE_QEMU_ALLOW_TCG=1 + a raised
+# timeout — decide there, do not silently flip here.
+#
+# SSH key handling: the image.yml artifact embeds THAT run's internal SSH
+# key (never shipped). This workflow therefore provisions its own throwaway
+# keypair into the downloaded image offline (loop-mount the btrfs root,
+# append the fresh public key) and passes the private half to the harness
+# via --ssh-key. The key lives only in $RUNNER_TEMP for the duration of the
+# run.
+#
+# Hardening (threat model 04-02):
+#   - every action is official (actions/*) and pinned by full commit SHA
+#     (T-01-03 / T-01-SC);
+#   - the image artifact is downloaded with the official gh CLI + this
+#     workflow's own github.token, explicitly repo-scoped — no third-party
+#     artifact action (T-01-11);
+#   - timeout-minutes bounds the run (T-01-13); a timeout is a failure;
+#     no step carries continue-on-error — a red perf run is a signal;
+#   - the ONLY repository write is the baseline bot commit (contents:write);
+#     the commit message carries the run link so every number is traceable
+#     to the exact image build (T-04-06 provenance: tier/source/accel/
+#     target/started_at travel inside the JSON itself).
+
+on:
+  workflow_run:
+    workflows: ["image"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  # Baseline write-back bot commit (test/perf/baseline-latest.json) is the
+  # only write face of this workflow.
+  contents: write
+  # gh run list / gh run download read the image.yml qemu-x86_64-image
+  # artifact.
+  actions: read
+
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+jobs:
+  perf:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Scope any gh call to this repository.
+      ARCHMAGE_GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Resolve source image.yml run
+        id: srcrun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            run_id="${{ github.event.workflow_run.id }}"
+          else
+            # dispatch: gate against the latest successful main image run
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow image.yml \
+                        --branch main --status success --limit 1 \
+                        --json databaseId --jq '.[0].databaseId')"
+          fi
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful image.yml run on main to baseline yet"
+            exit 1
+          fi
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          {
+            echo "- Gate event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- x86_64 dev image from image.yml run: ${run_id}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check /dev/kvm premise
+        # Explicit first-run re-check of the hosted-runner KVM premise — a
+        # missing /dev/kvm must be a LOUD red here (falling back to TCG
+        # silently would change what the baseline numbers mean; that switch
+        # is a documented decision, see the workflow header).
+        run: |
+          set -euo pipefail
+          if ! [ -w /dev/kvm ]; then
+            echo "::error::/dev/kvm is not available/writable on this runner — the perf baseline premise (GitHub hosted ubuntu runner with KVM, android-emulator CI precedent) does not hold. Per 04-02 verification (d): move to a self-hosted runner or consciously switch this workflow to ARCHMAGE_QEMU_ALLOW_TCG=1 with a raised timeout. Do not silence this check."
+            exit 1
+          fi
+          ls -la /dev/kvm
+
+      - name: Download x86_64 dev image artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qemu-image"
+          # T-01-11: official gh CLI + this workflow's own token, explicitly
+          # scoped to this repository; no third-party download action.
+          gh run download "${{ steps.srcrun.outputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name qemu-x86_64-image \
+            --dir "$RUNNER_TEMP/qemu-image"
+          ls -la "$RUNNER_TEMP/qemu-image"
+
+      - name: Unpack image and provision throwaway SSH key
+        id: image
+        run: |
+          set -euo pipefail
+          img_xz="$(ls "$RUNNER_TEMP"/qemu-image/archmage-qemu-x86_64-*.img.xz | head -1)"
+          xz -d -T0 "$img_xz"
+          img="${img_xz%.xz}"
+          test -s "$img"
+
+          ssh-keygen -q -t ed25519 -N '' -C archmage-perf-ephemeral \
+            -f "$RUNNER_TEMP/perf-key"
+          chmod 600 "$RUNNER_TEMP/perf-key"
+
+          # Offline key provisioning: mount the btrfs default subvolume (@)
+          # from partition 2 and append the fresh public half to root's
+          # authorized_keys (the image's own key pair stayed inside the
+          # image.yml runner and is not shipped).
+          sudo mkdir -p /mnt/perf-rootfs
+          loopdev="$(sudo losetup --find --show --partscan "$img")"
+          echo "loopdev=$loopdev" >> "$GITHUB_OUTPUT"
+          sudo mount -o subvol=/@ "${loopdev}p2" /mnt/perf-rootfs
+          sudo tee -a /mnt/perf-rootfs/root/.ssh/authorized_keys \
+            < "$RUNNER_TEMP/perf-key.pub" > /dev/null
+          sudo chmod 600 /mnt/perf-rootfs/root/.ssh/authorized_keys
+          sudo umount /mnt/perf-rootfs
+          sudo losetup -d "$loopdev"
+
+          echo "img=$img" >> "$GITHUB_OUTPUT"
+          echo "key=$RUNNER_TEMP/perf-key" >> "$GITHUB_OUTPUT"
+
+      - name: Run QEMU perf baseline (collection gate)
+        # The perf script's exit code IS the gate (collection succeeded:
+        # boot + SSH + no failed units + every metric measured). The VALUES
+        # are informational-only — no threshold comparison exists anywhere
+        # in this pipeline.
+        run: |
+          set -euo pipefail
+          img_name="$(basename "${{ steps.image.outputs.img }}")"
+          docker run --rm --platform linux/x86_64 \
+            -v "$GITHUB_WORKSPACE":/w -w /w \
+            -v "$RUNNER_TEMP":/perfdata \
+            --device /dev/kvm \
+            -e ARCHMAGE_HOST_UID="$(id -u)" \
+            archlinux:base bash -c \
+            "pacman -Sy --noconfirm qemu-emulators-full edk2-ovmf openssh jq >/dev/null 2>&1 && \
+             bash test/perf/perf-x86_64.sh \
+               --image /perfdata/qemu-image/$img_name \
+               --ssh-key /perfdata/perf-key \
+               --timeout 600"
+
+      - name: Stage results for upload
+        id: results
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p perf-results
+          # test/results/latest is a symlink; dereference so the artifact has
+          # a flat, stable layout (perf.json + collection artifacts).
+          if [ -d test/results/latest ]; then
+            cp -L test/results/latest/. perf-results/
+          else
+            echo "no test/results/latest — perf never produced results" >&2
+          fi
+          ls -la perf-results
+
+      - name: Upload perf-results artifact
+        # v7.0.1
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: perf-results
+          path: perf-results/
+          if-no-files-found: warn
+
+      - name: Inline perf.json into the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## perf baseline (informational-only)"
+            echo ""
+            echo "Source image.yml run: ${{ steps.srcrun.outputs.run_id }}"
+            if [ -s perf-results/perf.json ]; then
+              echo ""
+              echo '```json'
+              cat perf-results/perf.json
+              echo ""
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write baseline back (bot commit)
+        # The committed test/perf/baseline-latest.json is the public
+        # machine-readable baseline surface. Bot commit lands the fresh
+        # perf.json verbatim — informational-only means NO comparison, NO
+        # revert, NO gate on the numbers (T-04-06: provenance travels inside
+        # the JSON; the commit message pins the producing run).
+        if: success()
+        run: |
+          set -euo pipefail
+          test -s test/results/latest/perf.json
+          cp -L test/results/latest/perf.json test/perf/baseline-latest.json
+          jq -e '.status == "pass" and .tier == "qemu-kvm" and .source == "qemu"' \
+            test/perf/baseline-latest.json
+          git config user.name "archmage-perf-bot"
+          git config user.email "archmage-perf-bot@users.noreply.github.com"
+          git add test/perf/baseline-latest.json
+          if git diff --cached --quiet; then
+            echo "baseline JSON unchanged — nothing to commit"
+            exit 0
+          fi
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git commit -m "perf: refresh QEMU baseline (informational-only)
+          Source image.yml run: ${{ steps.srcrun.outputs.run_id }}
+          Producing perf run: $run_url
+          No threshold gating exists on this data (STRATEGY §8); the JSON
+          provenance fields (tier/source/accel/target/started_at) identify
+          the measurement context."
+          git push
