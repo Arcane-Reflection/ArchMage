@@ -1,0 +1,58 @@
+# Maintainer: Danct12 <danct12@disroot.org>
+# Contributor: Bart Ribbers <bribbers@disroot.org>
+#
+# ── ArchMage vendor header (03-02, T-03-30 provenance record) ─────────────
+# Vendored VERBATIM (comment block aside) from aur://waydroid @ 4b1f3d9
+# ("pkgctl license setup", pkgver 1.5.4-1, last AUR commit 2025-10-30);
+# cloned and re-checked 2026-10-02. Full provenance + execution-time
+# release re-check: DIVERGENCE.md next to this file.
+#
+# Deltas vs the AUR base commit: this comment block ONLY. No build or
+# packaging change — the vendored chain's discipline is "minimal
+# divergence": every real delta must be listed in DIVERGENCE.md.
+#
+# pkgname MUST stay `waydroid`: renaming would break dependency
+# resolution for every consumer (archmage-waydroid-config depends=waydroid;
+# waydroid's own lxc/dbus file layout keys off the package name). The
+# overlay directory being `overlay/apps/waydroid` is an organizational
+# fact, not a package rename — this is a recorded, honest decision.
+#
+# Why a self-hosted copy at all: danctnix removed waydroid packaging
+# (dreemurrs-embedded; STATE.md decision "Waydroid PKGBUILD 自持"), and
+# Arch's official [extra] package is only usable where [extra] serves
+# x86_64. packages.yml builds THIS overlay on arm64 runners, so the
+# aarch64/OP6 line resolves waydroid from the ArchMage staging repo.
+# arch=('any') already covers aarch64 upstream — no arch delta needed.
+#
+# Version policy (re-check Releases at every re-vendor): the base is the
+# AUR's currently maintained version at execution time. 2026-10-02
+# re-check: upstream's latest release is 1.6.3 (2026-05-28) and Arch
+# [extra] carries waydroid 1.6.3-1 — pacman resolves the higher pkgver
+# from [extra] where it serves the consumer's arch (measured: ALARM's
+# aarch64 extra now syncs waydroid + the gbinder chain too, so the
+# staged copies are the fallback line, not the only provider). nvchecker
+# upstream tracking is a Phase 4 TODO; until it exists this file +
+# DIVERGENCE.md are the provenance of record.
+
+pkgname=waydroid
+pkgver=1.5.4
+pkgrel=1
+pkgdesc="A container-based approach to boot a full Android system on a regular Linux system"
+arch=('any')
+url='https://waydro.id/'
+license=('GPL-3.0-or-later')
+depends=('lxc' 'python-gbinder' 'python-gobject' 'nftables' 'dnsmasq' 'gtk3' 'dbus-python')
+makedepends=('git')
+_commit="661934e2faea119f8fa9f9d00a0a4970e4864123" # tags/1.5.4
+source=("waydroid::git+https://github.com/waydroid/waydroid.git#commit=$_commit")
+
+pkgver() {
+  cd "$pkgname"
+  git describe --tags | sed 's/^v//;s/-/+/g'
+}
+
+package() {
+  make -C waydroid install DESTDIR="$pkgdir" USE_NFTABLES=1
+}
+
+sha256sums=('ad970f973815eb38647f13bc112fa139aa0e1e7e254413d8adc0f68b63428497')

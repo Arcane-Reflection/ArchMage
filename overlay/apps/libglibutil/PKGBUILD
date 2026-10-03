@@ -1,0 +1,31 @@
+# Maintainer: Danct12 <danct12@disroot.org>
+#
+# ── ArchMage vendor header (03-02, T-03-30) ───────────────────────────────
+# Vendored VERBATIM (comment block aside) from aur://libglibutil @ 9a62791
+# ("pkgctl license setup", 1.0.80-1, 2025-10-30); re-checked 2026-10-02.
+# Deltas: this comment block only — provenance ledger for the whole
+# vendored chain (incl. the execution-time release re-check) lives in
+# overlay/apps/waydroid/DIVERGENCE.md. arch already carries aarch64
+# upstream; pkgname stays upstream (waydroid's depends resolution keys
+# off these names).
+
+pkgname=libglibutil
+pkgver=1.0.80
+pkgrel=1
+pkgdesc="Library of glib utilities"
+arch=('x86_64' 'i686' 'armv7h' 'aarch64')
+url="https://github.com/sailfishos/libglibutil"
+license=('BSD-3-Clause')
+depends=('glib2')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/sailfishos/libglibutil/archive/refs/tags/${pkgver}.tar.gz")
+sha512sums=('8dea9bae8d06e01e23ae10fa0b4f853f65eca697df243a8ed99233cde3bdcecea7aefcc253095201c39acb94541bf9b948b1fad622fdab87dea002128209bc7a')
+
+build() {
+  cd $pkgname-$pkgver
+  make KEEP_SYMBOLS=1 release pkgconfig
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make install-dev DESTDIR="${pkgdir}"
+}

@@ -157,6 +157,19 @@ PHOSH_PKGS=(phoc phosh gnome-console)
 IME_PKGS=(fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt wtype grim \
     python-gobject gtk4 gtk3 xorg-xwayland)
 
+# Waydroid stack (03-02, APPS-01): the Android-in-container runtime for the
+# KVM smoke (test/waydroid/waydroid-verify.sh). waydroid pulls lxc,
+# nftables, dnsmasq and the gbinder chain via its depends — all resolved by
+# this transaction (on x86_64 pacman picks the higher pkgver from official
+# [extra]: waydroid 1.6.3-1; the staging repo's vendored 1.5.4-1 +
+# gbinder chain is the aarch64 fallback line — overlay/apps/waydroid/
+# DIVERGENCE.md). archmage-waydroid-config (03-02 Task 2) is the factory
+# layer — one-command init + suspend-safe defaults + demo-positioning doc —
+# and comes from the staging repo (a stale artifact fails pacstrap with
+# target-not-found: loud, by design; consume the refreshed
+# test/build/staging-local replica).
+WAYDROID_PKGS=(waydroid archmage-waydroid-config)
+
 # Required staging artifact files (01-01 contract).
 staging_valid() {
     [ -s "$STAGING_DIR/cn.db.tar.zst" ] &&
@@ -712,7 +725,11 @@ EOF
     # to the image and Task 3's matrix installs chromium + both Qt stacks
     # IN-VM (another ~3 GiB with caches). Only touched extents consume host
     # space; the post-pacstrap free-space guard below stays the loud check.
-    IMG_TOTAL_MB=12288
+    # 15 GiB (03-02): the waydroid stack (lxc/nftables/dnsmasq) plus the
+    # Android system/vendor images the verify run preseeds land on the
+    # @var subvolume (~1.5 GiB extracted); leave the in-VM transactions
+    # (Android image preseed + pacman) their 1 GiB headroom.
+    IMG_TOTAL_MB=15360
     cleanup_disk() {
         for m in "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/dev" \
                  "$ROOTFS_DIR/boot/efi" "$ROOTFS_DIR/tmp" "$ROOTFS_DIR/srv" \
@@ -888,6 +905,7 @@ SFDISK
         "$ROOTFS_DIR" \
         --assume-installed phosh-osk-provider=1 \
         base linux linux-firmware openssh "${PHOSH_PKGS[@]}" "${IME_PKGS[@]}" \
+        "${WAYDROID_PKGS[@]}" \
         grub grub-btrfs snapper snap-pac btrfs-progs dosfstools \
         archmage-cn archmage-phosh-safety archmage-cn-apn \
         archmage-btrfs-rollback archmage-fcitx5-osk
