@@ -257,7 +257,7 @@ jobs:
               if [ -n "${GPG_PASSPHRASE:-}" ]; then
                 # Make the passphrase available to gpg-agent so repo-add -s
                 # can sign non-interactively.
-                echo "allow-preset-passphrase" >> /root/.gnupg/gpg-agent.conf
+                echo "allow-preset-passphrase" >> "$(gpgconf --list-dirs homedir)/gpg-agent.conf"
                 gpg-connect-agent reloadagent /bye >/dev/null 2>&1 || true
                 keygrip="$(gpg --list-secret-keys --with-keygrip "$keyid" | awk '/Keygrip/{print $3; exit}')"
                 /usr/lib/gnupg/gpg-preset-passphrase --passphrase "$GPG_PASSPHRASE" -c "$keygrip"
