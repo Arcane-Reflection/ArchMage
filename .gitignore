@@ -48,3 +48,7 @@ tools/nvchecker/newver.txt
 .planning/
 .claude/
 STRATEGY.md
+
+# updpkgsums/makepkg downloaded sources at package-dir root
+overlay/apps/*/*.tar.gz
+overlay/apps/waydroid/waydroid/

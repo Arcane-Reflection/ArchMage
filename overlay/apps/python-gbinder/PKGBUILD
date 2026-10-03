@@ -1,47 +1,35 @@
-# Maintainer: Danct12 <danct12@disroot.org>
+# Maintainer: George Hu <integral@archlinux.org> (extra)
+# Contributor: Danct12 <danct12@disroot.org>
 #
-# ── ArchMage vendor header (03-02, T-03-30) ───────────────────────────────
-# Vendored VERBATIM (comment block aside) from aur://python-gbinder @
-# 7e0697c ("pkgctl license setup", 1.1.2-4, 2025-10-30); re-checked
-# 2026-10-02. pr12.patch (distutils → setuptools, python ≥ 3.12
-# requirement) is part of that base commit, vendored as-is.
-# Deltas: this comment block only — provenance ledger for the whole
-# vendored chain (incl. the execution-time release re-check) lives in
-# overlay/apps/waydroid/DIVERGENCE.md. arch already carries aarch64
-# upstream; pkgname stays upstream (waydroid's depends resolution keys
-# off these names).
+# ── ArchMage vendor header (03-02; re-vendored 2026-10-03) ────────────────
+# Re-based onto extra's python-gbinder 1.3.1-1 PKGBUILD (waydroid/gbinder-python
+# tag tarball, python-build/installer) after the 1.1.2 vendor line broke
+# waydroid >=1.5.4's python-gbinder>=1.3.0 requirement in CI. pr12.patch
+# dropped: upstream ≥1.3.x builds with setuptools directly.
+# Deltas vs extra: arch forced to aarch64 (our CI runner target; extra
+# carries x86_64 — ALARM extra covers aarch64 identically), provenance
+# comment block. Divergence ledger: overlay/apps/waydroid/DIVERGENCE.md.
 
 pkgname=python-gbinder
-pkgver=1.1.2
-pkgrel=4
+_srcname=gbinder-python
+pkgver=1.3.1
+pkgrel=1
 pkgdesc="Python bindings for libgbinder"
-arch=('x86_64' 'i686' 'armv7h' 'aarch64')
-url="https://github.com/erfanoabdi/gbinder-python"
+arch=('aarch64')
+url="https://github.com/waydroid/${_srcname}"
 license=('GPL-3.0-only')
-depends=('libgbinder')
-makedepends=('git' 'python-setuptools' 'cython')
-_commit="a2c5093c734e59df9f592010020cf081dadce81f"
-source=(${pkgname}::git+https://github.com/erfanoabdi/gbinder-python.git#commit=${_commit}
-  pr12.patch)
-sha512sums=('e12a0ed62bbf0d70a0ca53ea2d50a173a3b4cfe964ac92d5c591225f727ee4ab6ed591c2a6d35d5e95fc9dae04216c84303427b121a1d60d377225d99625439f'
-            'd8509b4c01fffcb002ab84cd170881d5df0dc5b990e0ae562b887abb6176530c087ca4151358466d7e1cb491accf662b2b44d2dc2e05effc6d9f01eb4003bfcc')
-
-pkgver() {
-  cd ${pkgname}
-  git describe --tags | sed 's/^v//;s/-/+/g'
-}
-
-prepare() {
-  cd ${pkgname}
-  patch -p1 -i "$srcdir/pr12.patch"
-}
+depends=('libgbinder>=1.1.40')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'cython')
+provides=("${_srcname}")
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+sha512sums=('85c78ad76cc9403b09be1fb96424f529aa0cee7a570bc5cb7a4515a4746b006998c6b32a6d59c9931846d825c99ae59e71e2e907940adc3ae13415d6655d5f00')
 
 build() {
-  cd ${pkgname}
-  python3 setup.py build --cython
+	cd "${_srcname}-${pkgver}/"
+	python -m build --wheel --no-isolation
 }
 
 package() {
-  cd ${pkgname}
-  python3 setup.py install --prefix=/usr --root="$pkgdir"
+	cd "${_srcname}-${pkgver}/"
+	python -m installer --destdir="${pkgdir}" dist/*.whl
 }

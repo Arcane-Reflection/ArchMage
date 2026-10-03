@@ -11,8 +11,8 @@ deltas here — nothing else may drift silently).
 | --- | --- |
 | Upstream source | `aur://waydroid` (https://aur.archlinux.org/waydroid.git) |
 | Base commit | `4b1f3d9` — "pkgctl license setup", 2025-10-30 |
-| Base pkgver-pkgrel | `1.5.4-1` (upstream source pinned to waydroid tag 1.5.4, commit 661934e) |
-| Vendored | 2026-10-02 (clone + re-check at execution time) |
+| Base pkgver-pkgrel | `1.6.3-1` (rebase-bot re-vendor pass; previous base in git history) |
+| Vendored | 2026-10-03 (rebase-bot re-vendor pass) |
 | Maintainer (upstream) | Danct12 (danctnix) |
 
 ### Execution-time Releases re-check (2026-10-02)
