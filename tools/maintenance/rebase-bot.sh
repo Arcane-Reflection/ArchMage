@@ -170,11 +170,13 @@ title_exists() { # <pkg> — dedup by title prefix on the existing-issues file
 
 write_issue() { # <pkg> <old> <new> — issue text with locez dedup semantics
 	local pkg="$1" old="$2" new="$3"
-	local file="$ISSUE_DIR/$(printf '%s' "$pkg" | tr -c 'A-Za-z0-9._-' '_').md"
+	local file
+	file="$ISSUE_DIR/$(printf '%s' "$pkg" | tr -c 'A-Za-z0-9._-' '_').md"
 	{
 		printf '# Title: %s\n\n' "$(issue_title "$pkg" "$old" "$new")"
 		if title_exists "$pkg"; then
 			log "issue for $pkg: existing issue found — UPDATE, not create"
+			# shellcheck disable=SC2016  # literal markdown backticks + printf format
 			printf '**Action: UPDATE the existing open issue** (dedup by title prefix `[nvchecker] %s: `) — do not create a new one.\n\n' "$pkg"
 		else
 			printf '**Action: CREATE a new issue** (no existing open issue carries this title prefix).\n\n'
@@ -281,9 +283,13 @@ build_worktree_pkg() { # <worktree-pkgdir> <log-file> → 0 on build success
 	sudo_run_as_builder "makepkg -f --noconfirm" >> "$logfile" 2>&1 || return 1
 	# Leaf-first: install the fresh package so later chain builds resolve
 	# against it (packages.yml pattern).
-	local pkgfile
-	pkgfile="$(ls -t "$pkgdest" 2>/dev/null | grep -E "^$(basename "$dir")-[0-9][^-]*-" | head -1 || true)"
-	pkgfile="${pkgfile:+$pkgdest/$pkgfile}"
+	local pkgfile="" candidate
+	for candidate in "$pkgdest/$(basename "$dir")"-*.pkg.tar.zst; do
+		[[ -f "$candidate" ]] || continue
+		case "$candidate" in *-debug-*) continue ;; esac
+		pkgfile="$candidate"
+		break
+	done
 	if [[ -n "$pkgfile" ]]; then
 		pacman -U --noconfirm "$pkgfile" >/dev/null 2>&1 || true
 		printf 'built: %s\n' "$pkgfile" >> "$logfile"
@@ -555,8 +561,11 @@ fi
 	printf '# rebase-bot run summary\n\n'
 	printf -- '- results dir: %s\n' "$RESULTS"
 	printf -- '- drifts classified: %s\n' "${#DRIFTS[@]}"
-printf -- '- weekly drop/rename check: %s\n' "$([[ $WEEKLY -eq 1 ]] && echo run || echo skipped)"
-printf -- '- take: %s\n' "$([[ $TAKE -eq 1 ]] && echo done || echo skipped)"
+weekly_state="skipped" take_state="skipped"
+[[ "$WEEKLY" -eq 1 ]] && weekly_state="run"
+[[ "$TAKE" -eq 1 ]] && take_state="done"
+printf -- '- weekly drop/rename check: %s\n' "$weekly_state"
+printf -- '- take: %s\n' "$take_state"
 if [[ "${#NEEDS_HUMAN[@]}" -gt 0 ]]; then
 	printf '\nNeeds-human (mechanical re-vendor failed; FAILED.md + build.log in pr/):\n'
 	for pkg in "${NEEDS_HUMAN[@]}"; do

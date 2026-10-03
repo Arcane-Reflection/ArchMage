@@ -49,6 +49,10 @@ cd "$REPO_ROOT"
 # nvchecker's alpm source needs ABSOLUTE dbpaths (pyalpm Handle), pinned to
 # the container mount point /work in tools/nvchecker.toml — enforce the
 # documented execution surface rather than failing deep inside libalpm.
+# (log/die are defined right below — keep any early failure readable)
+log() { printf '[upstream-check] %s\n' "$*"; }
+die() { printf '[upstream-check] ERROR: %s\n' "$*" >&2; exit 1; }
+
 if [[ "$(pwd -P)" != "/work" ]]; then
 	die "this script runs inside archlinux:base with the repo mounted at /work: docker run --rm -v \"\$PWD\":/work -w /work archlinux:base bash tools/maintenance/upstream-check.sh"
 fi
@@ -61,9 +65,6 @@ ALARM_CONF="tools/nvchecker/alarm-pacman.conf"
 ALARM_DB="tools/nvchecker/alarm-db"
 ARCH_DB="tools/nvchecker/arch-db"
 EXPECTED_ENTRIES=15
-
-log() { printf '[upstream-check] %s\n' "$*"; }
-die() { printf '[upstream-check] ERROR: %s\n' "$*" >&2; exit 1; }
 
 install_tools() {
 	log "installing nvchecker + pyalpm + curl (official signed repos)"
