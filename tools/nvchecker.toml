@@ -1,0 +1,192 @@
+# nvchecker upstream tracking — ArchMage (Phase 4, plan 04-01; MAINT-01)
+#
+# 15 entries, one per upstream source in the 04-RESEARCH.md Q2 table.
+# Consumed by tools/maintenance/upstream-check.sh (single entry point):
+# nvchecker --logger json → check.jsonl, nvcmp --json → nvcmp.json,
+# synthesized into drift-report.md. Never parsed by anything that EXECUTES
+# upstream content (T-04-01: data-only discipline).
+#
+# Execution-time calibration record (2026-10-03, RESEARCH Assumptions Log):
+#
+#   A1 (mer-hybris org for libglibutil/python-gbinder) — PARTIALLY WRONG,
+#       corrected by API probe: libgbinder IS mer-hybris/libgbinder
+#       (max tag 1.1.53), but libglibutil lives at sailfishos/libglibutil
+#       (max tag 1.0.82) and python-gbinder's AUR source URL
+#       (erfanoabdi/gbinder-python) redirects to waydroid/gbinder-python
+#       (max plain tag 1.3.1). Recorded per-entry below.
+#
+#   A2 (danctnix phosh PKGBUILD Codeberg raw path) — CONFIRMED:
+#       https://codeberg.org/DanctNIX/danctnix-packages/raw/branch/main/
+#       phosh/phosh/PKGBUILD → pkgver=0.57.0 (fetched at calibration).
+#
+#   A3 (alpm source + ALARM dbpath) — CONFIRMED WORKING: nvchecker 2.22
+#       `alpm` source + locally synced ALARM aarch64 db
+#       (tools/nvchecker/alarm-db, refreshed by upstream-check.sh via
+#       tools/nvchecker/alarm-pacman.conf) returned libgbinder 1.1.52-1 /
+#       waydroid 1.6.3-1, matching DIVERGENCE.md's 2026-10-02 measurement.
+#
+#   NEW CALIBRATION FINDING (beyond A1-A3, [Rule 3] deviation 04-01 T1):
+#       the four AUR base packages (waydroid/libglibutil/libgbinder/
+#       python-gbinder) were DROPPED from the AUR between the 2026-10-02
+#       vendoring (aur @4b1f3d9 et al., DIVERGENCE.md) and this run
+#       (aur.archlinux.org 404 + RPC resultcount 0; only -git variants
+#       remain). A plain `aur` source on a dropped package hard-errors
+#       ("AUR upstream not found") — incompatible with the zero-error
+#       verify contract. Per Q2's intent (entries 1-4 = the maintained
+#       base the vendored PKGBUILDs are re-vendored from), they are
+#       re-pointed at the official packaging line that now carries the
+#       chain: Arch x86_64 [extra] (alpm source, second dbpath
+#       tools/nvchecker/arch-db, synced by upstream-check.sh from the
+#       container's own repo config). ALARM aarch64 (entries 9-12) stays
+#       the device-line supply signal. The drop itself is exactly the
+#       drift class the vendored-copies-as-fallback policy (DIVERGENCE.md,
+#       WINDOWS #33) insures against; entries 9-12 + the weekly
+#       drop/rename check (rebase-bot.sh) keep watching it.
+
+[__config__]
+# Baseline ("name version" lines, committed) vs check-result store
+# (regenerated each run; --take replaces oldver.txt with the taken state).
+# Both files may use either the text or the version-2 JSON format —
+# nvtake rewrites newver.txt as JSON v2, and nvchecker/nvcmp read both.
+# NOTE: nvchecker resolves oldver/newver/keyfile relative to THIS file's
+# directory; the alpm `dbpath` values below are NOT — pyalpm requires
+# absolute paths, so they pin the container mount point /work (the only
+# documented execution surface: upstream-check.sh inside archlinux:base,
+# `docker run -v "$PWD":/work -w /work ...`).
+oldver = "nvchecker/oldver.txt"
+newver = "nvchecker/newver.txt"
+# Runtime-generated (upstream-check.sh; gitignored, never committed):
+# [keys] github = $GITHUB_TOKEN when set, empty [keys] otherwise.
+keyfile = "nvchecker/keyfile"
+# Baseline provenance (nvchecker's oldver parser accepts NO comment or
+# blank lines, so the file itself is 15 bare "name version" rows):
+#   entries 1-4  = DIVERGENCE.md vendor bases (aur @4b1f3d9 / @9a62791 /
+#                  @ccf6068 / @7e0697c, 2026-10-02);
+#   entries 5-8  = upstream tags/releases (RESEARCH + 2026-10-03 probes);
+#   entries 9-12 = ALARM aarch64 extra.db measurement (2026-10-02);
+#   entries 13-15 = danctnix release tag / kupferbootstrap tag / phosh
+#                  pkgver, probed at calibration (2026-10-03).
+# First-run nvcmp therefore reports the REAL drift already on record
+# (vendored chain vs [extra]: libgbinder 1.1.43-1 -> 1.1.52-1 etc.).
+# Updated only by rebase-bot.sh --take (after confirmed processing) or an
+# explicitly reviewed baseline bump — never by a plain check run.
+
+# ── 1-4: vendored chain — re-vendor signal (Q2 action: rebase-PR) ─────────
+# Calibrated: `aur` → dropped 2026-10-03 (see header); the maintained
+# packaging line the vendored PKGBUILDs mirror is Arch [extra] (x86_64).
+# dbpath holds an extra.db synced by upstream-check.sh each run.
+
+[waydroid]
+source = "alpm"
+alpm = "waydroid"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/arch-db"
+
+[libglibutil]
+source = "alpm"
+alpm = "libglibutil"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/arch-db"
+
+[libgbinder]
+source = "alpm"
+alpm = "libgbinder"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/arch-db"
+
+[python-gbinder]
+source = "alpm"
+alpm = "python-gbinder"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/arch-db"
+
+# ── 5: waydroid upstream releases (Q2 action: issue; AUR base lags) ───────
+
+[waydroid-upstream]
+source = "github"
+github = "waydroid/waydroid"
+use_latest_release = true
+
+# ── 6-8: vendored-chain upstream tags (Q2 action: issue) ──────────────────
+# A1 calibration: mer-hybris/libgbinder confirmed; libglibutil is the
+# sailfishos org; python-gbinder is waydroid/gbinder-python (redirected
+# from erfanoabdi). The include_regex keeps the plain semver tags — the
+# repo also carries `upstream/x.y.z` and `droidian/...` refs that would
+# otherwise win the max-tag comparison.
+
+[libgbinder-upstream]
+source = "github"
+github = "mer-hybris/libgbinder"
+use_max_tag = true
+
+[libglibutil-upstream]
+source = "github"
+github = "sailfishos/libglibutil"
+use_max_tag = true
+
+[python-gbinder-upstream]
+source = "github"
+github = "waydroid/gbinder-python"
+use_max_tag = true
+include_regex = '^\d+\.\d+\.\d+$'
+
+# ── 9-12: the same four packages @ ALARM aarch64 [extra] ──────────────────
+# Reverse-direction alert (Q2): ALARM lag/drop promotes the vendored chain
+# from fallback to primary supply on the OP6 line. dbpath synced from
+# tools/nvchecker/alarm-pacman.conf (TUNA archlinuxarm, $arch/$repo layout).
+
+[waydroid-alarm]
+source = "alpm"
+alpm = "waydroid"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/alarm-db"
+
+[libglibutil-alarm]
+source = "alpm"
+alpm = "libglibutil"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/alarm-db"
+
+[libgbinder-alarm]
+source = "alpm"
+alpm = "libgbinder"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/alarm-db"
+
+[python-gbinder-alarm]
+source = "alpm"
+alpm = "python-gbinder"
+repos = ["extra"]
+dbpath = "/work/tools/nvchecker/alarm-db"
+
+# ── 13: danctnix stable release signal (Q2 action: issue) ────────────────
+# Calibrated per RESEARCH ("以 API 实测哪个在发 release 定"): Codeberg
+# DanctNIX/Pine64-Arch carries date-tagged releases (20260904 at
+# calibration); DanctNIX/danctnix-packages (the PKGBUILD sources repo)
+# has none. use_max_tag (NOT use_latest_release) is the calibrated form:
+# gitea's use_latest_release returns the release TITLE string
+# ("Arch Linux ARM / Ports - 2026/09/04") which is unstable as a
+# comparison value; use_max_tag returns the date tag itself ("20260904")
+# — a stable, comparable version (the RESEARCH date-format pitfall only
+# applies to the gitea source's DEFAULT mode, which we do not use).
+
+[danctnix-release]
+source = "gitea"
+gitea = "DanctNIX/Pine64-Arch"
+host = "codeberg.org"
+use_max_tag = true
+
+# ── 14: kupferbootstrap tags (we fork it; Q2 action: rebase-plan) ─────────
+
+[kupferbootstrap]
+source = "gitlab"
+gitlab = "kupfer/kupferbootstrap"
+use_max_tag = true
+
+# ── 15: danctnix representative package pkgver (Q2 action: issue) ─────────
+# A2 CONFIRMED: raw phosh PKGBUILD path on Codeberg main branch. Data
+# parsing only — the fetched PKGBUILD is grepped, never executed (T-04-01).
+
+[phosh-danctnix]
+source = "cmd"
+cmd = "curl -sS https://codeberg.org/DanctNIX/danctnix-packages/raw/branch/main/phosh/phosh/PKGBUILD | grep -m1 '^pkgver=' | cut -d= -f2"

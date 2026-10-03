@@ -1,0 +1,15 @@
+waydroid 1.5.4-1
+libglibutil 1.0.80-1
+libgbinder 1.1.43-1
+python-gbinder 1.1.2-4
+waydroid-upstream 1.6.3
+libgbinder-upstream 1.1.52
+libglibutil-upstream 1.0.82
+python-gbinder-upstream 1.3.1
+waydroid-alarm 1.6.3-1
+libglibutil-alarm 1.0.82-1
+libgbinder-alarm 1.1.52-1
+python-gbinder-alarm 1.3.1-1
+danctnix-release 20260904
+kupferbootstrap v0.3.0-rc0
+phosh-danctnix 0.57.0

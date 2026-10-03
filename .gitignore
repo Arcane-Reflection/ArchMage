@@ -34,3 +34,11 @@ flash/op6/.work/
 
 # flash harness test bench results (mock logs, ephemeral gpg homes)
 flash/op6/tests/.results/
+
+# nvchecker runtime artifacts (04-01): synced alpm dbpaths, the token
+# keyfile (T-04-02 — generated per-run from GITHUB_TOKEN, deleted on exit)
+# and the check-result store (nvtake target; baseline is oldver.txt)
+tools/nvchecker/alarm-db/
+tools/nvchecker/arch-db/
+tools/nvchecker/keyfile
+tools/nvchecker/newver.txt

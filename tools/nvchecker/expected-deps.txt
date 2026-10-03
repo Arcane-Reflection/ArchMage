@@ -1,0 +1,32 @@
+# expected-deps.txt — the mobile-stack package names the vendored chain
+# (overlay/apps/{waydroid,libglibutil,libgbinder,python-gbinder}) and the
+# archmage meta packages reference. One name per line; comment lines (#)
+# ignored. Baseline for the WEEKLY drop/rename check (rebase-bot.sh):
+# upstream package listings (Codeberg DanctNIX/danctnix-packages tree +
+# kupfer pkgbuilds tree via git ls-tree, ALARM aarch64 db via
+# `pacman -Sl --dbpath tools/nvchecker/alarm-db`) are diffed against this
+# list; a name present in NONE of the pools is a "meta 依赖断链" finding
+# (issue text; NEVER an auto-fork — STRATEGY §4 生死线).
+#
+# Extracted from overlay/*/*/PKGBUILD pkgname/depends/optdepends at
+# execution time (2026-10-03). Known-standing misses are REAL findings
+# (e.g. dbus-python is absent from ALARM aarch64 repos at calibration —
+# a genuine supply gap for the waydroid dep chain on the device line).
+waydroid
+libglibutil
+libgbinder
+python-gbinder
+lxc
+python-gobject
+nftables
+dnsmasq
+gtk3
+dbus-python
+glib2
+phosh
+phoc
+fcitx5
+fcitx5-chinese-addons
+fcitx5-gtk
+fcitx5-qt
+qbootctl
