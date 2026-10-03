@@ -89,6 +89,9 @@ result_begin() {
     # Pre-create so the artifacts exist even when QEMU never boots.
     : > "$RESULT_DIR/serial.log"
     : > "$RESULT_DIR/journal.log"
+    # Publish `latest` NOW (not at finish): CI job-timeout kills skip the
+    # finish path, and post-mortem staging keys off this symlink.
+    ln -sfn "$ts" "$root/latest"
     RESULT_ASSERT_FILE=$(mktemp "${TMPDIR:-/tmp}/archmage-assertions.XXXXXX")
     printf 'smoke result dir: %s\n' "$RESULT_DIR" >&2
 }
