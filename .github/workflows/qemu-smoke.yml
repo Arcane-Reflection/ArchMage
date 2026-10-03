@@ -121,13 +121,12 @@ jobs:
       - name: Shellcheck the harness scripts
         run: |
           set -euo pipefail
-          # shellcheck via the official archlinux container (the package is
-          # not in ALARM repos; lint is arch-independent). The 01-02 scripts
-          # run the host path on this runner; the lint must not regress it.
-          docker run --rm -v "$PWD:/w" -w /w ghcr.io/archlinux/archlinux:base bash -c \
-            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf && \
-             pacman -Sy --noconfirm --needed shellcheck >/dev/null && \
-             find test tools -name '*.sh' -type f -print0 | xargs -0 -r shellcheck"
+          # shellcheck via apt on the runner itself: the ghcr archlinux image
+          # is amd64-only (no arm64 manifest — run 37116404775) and ALARM
+          # repos do not carry the package. Ubuntu's shellcheck is adequate.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck >/dev/null
+          find test tools -name '*.sh' -type f -print0 | xargs -0 -r shellcheck
 
       - name: Build smoke rootfs from the staging repo
         run: |
