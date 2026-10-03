@@ -1,15 +1,15 @@
 # 贡献指南 / Contributing
 
-感谢参与 ArchMage。本仓库的维护成本生死线写在 [STRATEGY.md](STRATEGY.md) §4;下面是最常用的规则。
+感谢参与 ArchMage。本仓库的维护成本生死线写在 内部维护纪律文档 §4;下面是最常用的规则。
 
 ## 1. overlay-only(生死线)
 
-**一切非 CN 差异永远跟上游,不 fork 出自己的版本,只做 overlay。** 本仓库的存续依赖 overlay-only 纪律(STRATEGY §4)。
+**一切非 CN 差异永远跟上游,不 fork 出自己的版本,只做 overlay。** 本仓库的存续依赖 overlay-only 纪律(内部维护纪律 §4)。
 
 上游分层:Arch Linux ARM(底座)→ pmaports(设备/内核)→ danctnix(移动软件包)→ kupferbootstrap(构建工具)。本仓库 `overlay/` 只承载 CN 差异:镜像源、NTP/DNS/connectivity、locale/时区/字体、中文输入、CN 应用集成。
 
 - ✅ 正确姿势:新建一个包 `depends=(上游包名)`,通过 drop-in 配置或元包组合投递 CN 默认值(参考 `overlay/cn/` 现有五包)。
-- ❌ 反例(会被直接拒绝):把 danctnix 的 `phosh/PKGBUILD` 拷进来加补丁、给上游包打"CN 优化"补丁、`replaces=`/`conflicts=` 任何上游包名。上游能修的问题,先把补丁以个人名义提交给上游(STRATEGY §5 回馈上游)。
+- ❌ 反例(会被直接拒绝):把 danctnix 的 `phosh/PKGBUILD` 拷进来加补丁、给上游包打"CN 优化"补丁、`replaces=`/`conflicts=` 任何上游包名。上游能修的问题,先把补丁以个人名义提交给上游(内部维护纪律 §5 回馈上游)。
 
 衡量标准:overlay 与上游的 diff 只应包含 CN 默认值;diff 膨胀到覆盖大量非 CN 包时,项目已经走在死亡线上(参考 EndeavourOS ARM / Manjaro-ARM 的死因)。
 
@@ -57,14 +57,14 @@ makepkg -sf --noconfirm              # 本地构建(arch=any,x86_64 主机即可
 本仓库的日常维护大量交给自动化(CI 与 AI 修复循环)。**AI 能做什么、
 什么时候必须停下来叫人**,由机器可读规则文件
 [`tools/ai-rules/call-a-human.yaml`](tools/ai-rules/call-a-human.yaml) 定义
-(语义源:STRATEGY §8;CI 每次推送与每日运行都会校验规则文件本身,并断言
+(语义源:内部维护纪律 §8;CI 每次推送与每日运行都会校验规则文件本身,并断言
 没有任何 workflow 步骤触碰 block 门)。
 
 三档门,贡献者同样需要知道:
 
 | 档 | 含义 | 具体门 |
 | --- | --- | --- |
-| `block` | 自动化(含 AI)永远不碰 | stable 通道签名发布、任何签名链密钥操作、方向性变更(改 STRATEGY/路线图) |
+| `block` | 自动化(含 AI)永远不碰 | stable 通道签名发布、任何签名链密钥操作、方向性变更(改内部纪律文档/路线图) |
 | `open_issue` | 自动化只开/更新 issue,绝不自行"修复" | overlay 包数超过 50(复用原则预警)、上游删包/改名断链(**绝不自动 fork 上游补救**) |
 | `require_human` | 转人工执行 | fastboot/adb 等一切真机写操作(QEMU-only 自动化边界) |
 

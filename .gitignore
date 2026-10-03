@@ -42,3 +42,9 @@ tools/nvchecker/alarm-db/
 tools/nvchecker/arch-db/
 tools/nvchecker/keyfile
 tools/nvchecker/newver.txt
+.keys/
+
+# internal planning & agent context (not for the public repo)
+.planning/
+.claude/
+STRATEGY.md
