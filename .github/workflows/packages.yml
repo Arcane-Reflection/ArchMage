@@ -204,6 +204,9 @@ jobs:
           grep -q '^\[archmage-local\]' /etc/pacman.conf || printf '\n[archmage-local]\nSigLevel = Never\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
           repo-add "$LOCALREPO/archmage-local.db.tar.zst" >/dev/null
           pacman -Sy --noconfirm >/dev/null
+          echo "--- local repo registered ---"
+          tail -4 /etc/pacman.conf
+          pacman -Sl archmage-local || true
           mapfile -t pkgs < <(printf '%s\n' "${{ steps.detect.outputs.pkgs }}" | sed '/^$/d')
           # Leaf-first retry loop: in-tree meta packages (e.g. the
           # archmage-cn umbrella depends on archmage-cn-*) are
@@ -250,9 +253,10 @@ jobs:
                 # resolve this one as a dependency.
                 mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
                 if [ "${#built[@]}" -gt 0 ]; then
-                  repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}" >/dev/null
+                  repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}"
                   pacman -Sy --noconfirm >/dev/null
                   pacman -U --noconfirm "${built[@]}"
+                  echo "--- local db now ---"; pacman -Sl archmage-local | tail -5
                 fi
               else
                 next+=("$d")
