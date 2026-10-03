@@ -125,7 +125,8 @@ jobs:
           # (official-distribution package only, T-01-SC). The 01-02 scripts
           # run the host path on this runner; the lint must not regress it.
           docker run --rm -v "$PWD:/w" -w /w menci/archlinuxarm:base bash -c \
-            "pacman -Sy --noconfirm --needed shellcheck >/dev/null && \
+            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf && \
+             pacman -Sy --noconfirm --needed shellcheck >/dev/null && \
              find test tools -name '*.sh' -type f -print0 | xargs -0 -r shellcheck"
 
       - name: Build smoke rootfs from the staging repo

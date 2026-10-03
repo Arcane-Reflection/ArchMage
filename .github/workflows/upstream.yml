@@ -66,6 +66,7 @@ jobs:
           docker run --rm -v "$PWD":/work -w /work \
             archlinux:base bash -c '
               set -euo pipefail
+              grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
               pacman -Sy --noconfirm python-yaml >/dev/null 2>&1
               bash tools/checks/validate-call-a-human.sh
               bash tools/checks/assert-gate-boundary.sh

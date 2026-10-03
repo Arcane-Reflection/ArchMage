@@ -43,6 +43,9 @@ jobs:
       - name: Prepare container toolchain
         run: |
           set -euo pipefail
+          # GH Actions docker blocks Landlock; pacman 7 sandbox cannot be satisfied
+          # inside job containers (01-02 decision) — container-own pacman only.
+          grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
           pacman-key --init
           pacman-key --populate archlinuxarm
           # base-devel image already has most of this; --needed keeps it idempotent.
