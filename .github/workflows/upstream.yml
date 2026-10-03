@@ -1,0 +1,131 @@
+name: upstream
+
+# MAINT-01 (plan 04-01): daily nvchecker upstream tracking + rebase-bot
+# drift triage against the 15 real sources in tools/nvchecker.toml.
+#
+#   - single implementation with the local battery: both scripts run
+#     inside archlinux:base via `docker run -v "$PWD":/work -w /work` —
+#     the exact invocation contract upstream-check.sh asserts (mount at
+#     /work), so local and CI share one code path;
+#   - daily schedule staggered against the existing crons (gap-report
+#     02:17 / qemu-smoke 02:41 / image 03:17); the Monday schedule adds
+#     the weekly drop/rename ("meta 依赖断链") detection;
+#   - discovering updates is NOT a failure (nvchecker/nvcmp exit codes
+#     are captured, not judged — obs-auto-trigger precedent): the scripts
+#     exit 0 with drift, non-zero only on infrastructure errors, so the
+#     workflow goes red only when the machinery itself breaks;
+#   - the rebase-bot produces PR-READY ARTIFACTS (patch bundle + PR body
+#     under test/results/upstream/<ts>/pr/) and issue TEXT — it never
+#     posts to GitHub itself and never merges; merging stays a human gate
+#     (STRATEGY §8). Actual GitHub delivery is CI-deferred until the repo
+#     has a remote (recorded in 04-01-SUMMARY / WINDOWS);
+#   - --take + baseline commit run AFTER processing, only when the
+#     baseline actually changed (locez dedup semantics keep the daily
+#     run idempotent);
+#   - every action is official and SHA-pinned.
+
+on:
+  schedule:
+    # Daily at 03:43 UTC.
+    - cron: "43 03 * * *"
+    # Weekly (Monday 04:09 UTC) — adds the drop/rename check.
+    - cron: "9 04 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write # oldver.txt baseline commit-back
+  issues: write # issue text delivery (locez mode) once the repo is live
+  pull-requests: write # re-vendor PR delivery once the repo is live
+
+concurrency:
+  group: upstream-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WEEKLY: ${{ github.event.schedule == '9 04 * * 1' }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Run nvchecker upstream check (archlinux:base)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/work -w /work \
+            -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY -e GITHUB_TOKEN \
+            archlinux:base bash tools/maintenance/upstream-check.sh
+
+      - name: Collect existing issue titles (dedup feed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Empty until the repo has issues — the dedup treats a missing
+          # file as "nothing open" and produces create-instructions.
+          gh issue list --state open --limit 500 --json title \
+            --jq '.[].title' > existing-issues.txt || true
+          wc -l existing-issues.txt
+
+      - name: Run rebase-bot drift triage (archlinux:base)
+        run: |
+          set -euo pipefail
+          weekly_flag=""
+          if [ "$WEEKLY" = "true" ]; then
+            weekly_flag="--weekly"
+          fi
+          # shellcheck disable=SC2086
+          docker run --rm -v "$PWD":/work -w /work \
+            -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY \
+            -v "$PWD/existing-issues.txt:/tmp/existing-issues.txt:ro" \
+            archlinux:base bash tools/maintenance/rebase-bot.sh \
+              --results-dir test/results/upstream/latest \
+              --existing-issues /tmp/existing-issues.txt \
+              $weekly_flag
+
+      - name: Take baseline and commit it back (only on real change)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/work -w /work \
+            archlinux:base bash tools/maintenance/rebase-bot.sh \
+              --results-dir test/results/upstream/latest --take-only
+          if git diff --quiet -- tools/nvchecker/oldver.txt; then
+            echo "baseline unchanged — nothing to commit"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add tools/nvchecker/oldver.txt
+            git commit -m "chore(04-01): nvchecker baseline take (post-processing)"
+            git push
+          fi
+
+      - name: Upload upstream artifacts
+        # v7.0.1
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: upstream-artifacts
+          path: |
+            test/results/upstream/latest/drift-report.md
+            test/results/upstream/latest/nvcmp.json
+            test/results/upstream/latest/check.jsonl
+            test/results/upstream/latest/bot-summary.md
+            test/results/upstream/latest/pr/
+            test/results/upstream/latest/issue/
+          if-no-files-found: error
+
+      - name: Inline drift report into the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s test/results/upstream/latest/drift-report.md ]; then
+            cat test/results/upstream/latest/drift-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "drift-report.md missing — see the run step log" >> "$GITHUB_STEP_SUMMARY"
+          fi
