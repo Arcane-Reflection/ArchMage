@@ -86,14 +86,6 @@ jobs:
               python3 python3-pip xz-utils gnupg jq
           python3 --version
 
-      - name: Install kupferbootstrap toolchain (pinned)
-        # bootstrap.sh --install-only: container prep + kbs install from the
-        # bootstrap/kbs-version.txt pin + config staging/validation. Fails
-        # fast on toolchain/pin problems before the artifact is consumed.
-        run: |
-          set -euo pipefail
-          bash bootstrap/bootstrap.sh --staging-dir "$RUNNER_TEMP/staging-repo" --install-only
-
       - name: Resolve source packages.yml run
         id: srcrun
         env:
@@ -125,6 +117,14 @@ jobs:
             --name staging-repo \
             --dir "$RUNNER_TEMP/staging-repo"
           ls -la "$RUNNER_TEMP/staging-repo"
+
+      - name: Install kupferbootstrap toolchain (pinned)
+        # bootstrap.sh --install-only: container prep + kbs install from the
+        # bootstrap/kbs-version.txt pin + config staging/validation. Fails
+        # fast on toolchain/pin problems before the artifact is consumed.
+        run: |
+          set -euo pipefail
+          bash bootstrap/bootstrap.sh --staging-dir "$RUNNER_TEMP/staging-repo" --install-only
 
       - name: Build OP6 image (kbs + CN layer)
         # bootstrap.sh builds inside a privileged menci/archlinuxarm:base
