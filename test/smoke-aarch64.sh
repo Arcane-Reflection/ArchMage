@@ -255,7 +255,7 @@ qemu-system-aarch64 \
     -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)" \
     -device virtio-net-pci,netdev=n0,romfile= \
 
-    -nographic -monitor none -no-reboot \
+    -display none -monitor none -no-reboot \
     -serial "file:$SERIAL_LOG" \
     -pidfile "$PID_FILE" \
     </dev/null >>"$RESULT_DIR/console.log" 2>&1 &
