@@ -143,7 +143,9 @@ find_firmware() {
     for candidate in \
         /usr/share/qemu/edk2-x86_64-code.fd \
         /usr/share/edk2/x64/OVMF_CODE.fd \
-        /usr/share/edk2-ovmf/x64/OVMF_CODE.fd; do
+        /usr/share/edk2/x64/OVMF_CODE.4m.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_CODE.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd; do
         if [ -f "$candidate" ]; then
             printf '%s\n' "$candidate"
             return 0
@@ -157,7 +159,9 @@ find_firmware_vars() {
     for candidate in \
         /usr/share/qemu/edk2-i386-vars.fd \
         /usr/share/edk2/x64/OVMF_VARS.fd \
-        /usr/share/edk2-ovmf/x64/OVMF_VARS.fd; do
+        /usr/share/edk2/x64/OVMF_VARS.4m.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_VARS.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd; do
         if [ -f "$candidate" ]; then
             printf '%s\n' "$candidate"
             return 0
