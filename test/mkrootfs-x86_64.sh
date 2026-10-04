@@ -1078,6 +1078,13 @@ GREETD
             ln -sf /usr/lib/systemd/system/seatd.service /etc/systemd/system/multi-user.target.wants/seatd.service
             ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service
         }
+        # the fcitx5 package ships an XDG autostart that grabs the single
+        # zwp_input_method_v2 slot at session start — stevia (the OSK) then
+        # gets zwp_input_method_v2.unavailable() and never unfolds (observed
+        # live 2026-10-04). The fcitx5 ENGINE stays installed (P1 custom
+        # keyboard backend, fcitx5-chinese-addons) but must NOT autostart
+        # while stevia owns the slot.
+        chmod -x /etc/xdg/autostart/org.fcitx.Fcitx5.desktop 2>/dev/null || true
     '
 
     # 5) One-time smoke key injection. Root gets password field '*' (no
