@@ -151,9 +151,12 @@ if [ "$INNER" = no ]; then
         if [ -n "${ARCHMAGE_WRAP_PLATFORM:-}" ]; then
             WRAP_ARGS+=(--platform "$ARCHMAGE_WRAP_PLATFORM")
         fi
-        # The inner qemu hostfwd binds the CONTAINER's loopback; publish it
-        # to the host loopback (T-01-06 still holds: loopback only).
-        WRAP_ARGS+=(-p 127.0.0.1:2222:2222)
+        # --network host: the inner qemu hostfwd binds the HOST loopback
+        # directly (T-01-06 holds); no port publishing needed.
+        WRAP_ARGS=(--rm --network host -v "$REPO_ROOT":/w -w /w)
+        if [ -n "${ARCHMAGE_WRAP_PLATFORM:-}" ]; then
+            WRAP_ARGS+=(--platform "$ARCHMAGE_WRAP_PLATFORM")
+        fi
         if archmage::kvm_available; then
             WRAP_ARGS+=(--device /dev/kvm)
         fi
@@ -171,10 +174,16 @@ if [ "$INNER" = no ]; then
         set +e
         # shellcheck disable=SC2086
         WRAP_IMAGE="${ARCHMAGE_WRAP_IMAGE:-archlinux:base}"
+        echo "wrap: engine=$ARCHMAGE_ENGINE image=$WRAP_IMAGE"
+        echo "wrap: args=${WRAP_ARGS[*]}"
         "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" "$WRAP_IMAGE" bash -c \
-            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\\[options\\]\$/[options]\\nDisableSandbox/' /etc/pacman.conf; \
-             pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs >/dev/null 2>&1 && bash test/smoke-aarch64.sh $INNER_CMD"
+            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\\[options\\]\\$/[options]\\nDisableSandbox/' /etc/pacman.conf; \
+             pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs && bash test/smoke-aarch64.sh $INNER_CMD"
         RC=$?
+        if [ "$RC" -ne 0 ]; then
+            echo "wrap failed rc=$RC — engine diagnostics follow" >&2
+            "$ARCHMAGE_ENGINE" version 2>&1 | head -4 >&2 || true
+        fi
         set -e
         exit "$RC"
     fi
