@@ -456,13 +456,16 @@ osk_db=no
 for d in "$OSK_DB_DIR"/stevia-*/; do
     if [ -d "$d" ]; then osk_db=yes; break; fi
 done
-osk_old=yes
+osk_old=absent
 ls -d "$OSK_DB_DIR"/archmage-fcitx5-osk-* >/dev/null 2>&1 && osk_old=present
 osk_missing=""
 [ -f "$MNT/usr/share/applications/sm.puri.OSK0.desktop" ] || osk_missing="${osk_missing:+$osk_missing; }sm.puri.OSK0.desktop"
 [ -f "$MNT/usr/lib/systemd/user/mobi.phosh.OSK.service" ] || osk_missing="${osk_missing:+$osk_missing; }mobi.phosh.OSK.service"
 greetd_enabled=no
-[ -e "$MNT/etc/systemd/system/display-manager.service" ] && greetd_enabled=yes
+# NOTE: -L, not -e — display-manager.service is an ABSOLUTE symlink; -e
+# would resolve its target against THIS container's root (greetd is not
+# installed here) and always read false (observed live 2026-10-04).
+[ -L "$MNT/etc/systemd/system/display-manager.service" ] && greetd_enabled=yes
 seatd_enabled=no
 ls -d "$MNT/etc/systemd/system/multi-user.target.wants/seatd.service" >/dev/null 2>&1 && seatd_enabled=yes
 squeekboard_absent=yes
