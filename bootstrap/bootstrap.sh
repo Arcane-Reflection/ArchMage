@@ -337,6 +337,14 @@ container_main() {
         archlinuxarm-keyring
     archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3
 
+    # Non-root build user (upstream kupferbootstrap container design: the
+    # tool runs as an unprivileged user with NOPASSWD sudo — makepkg refuses
+    # root outright, e.g. "Running makepkg as root is not allowed" killed
+    # the srcinfo parse on the first CI image run, 2026-10-04).
+    useradd -m -G wheel kupfer 2>/dev/null || true
+    printf 'kupfer ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/kupfer
+    chmod 440 /etc/sudoers.d/kupfer
+
     # 2) kbs from the pinned upstream tag (official gitlab.com/kupfer source).
     local venv=/opt/kbs-venv
     [ -x "$venv/bin/kupferbootstrap" ] || {
@@ -355,7 +363,9 @@ container_main() {
     cp "$KBS_TOML" "$WORK_DIR/kupferbootstrap.toml"
     ARCHMAGE_PYTHON=$KBS_PY
     check_config_files
-    kbs() { "$KBS_BIN" -C "$WORK_DIR/kupferbootstrap.toml" "$@"; }
+    chown -R kupfer:kupfer "$WORK_DIR" "$KBS_CACHE" /opt/kbs-venv 2>/dev/null || true
+    kbs() { sudo -u kupfer -H env HOME=/home/kupfer \
+        "$KBS_BIN" -C "$WORK_DIR/kupferbootstrap.toml" "$@"; }
 
     if [ "$MODE" = install-only ]; then
         # CLI smoke: --help short-circuits before the -C config load, hence

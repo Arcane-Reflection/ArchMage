@@ -431,6 +431,9 @@ EOF
     fi
     if ! pacman -r "$rootfs_dir" --config "$BUILD_DIR/x86_64/pacman-local-pin.conf" \
             -U "$cached_pkg" --noconfirm \
+            --overwrite "usr/include/wlroots-0.20/*" \
+            --overwrite "usr/lib/libwlroots-0.20.so" \
+            --overwrite "usr/lib/pkgconfig/wlroots-0.20.pc" \
             > "$BUILD_DIR/x86_64/wlroots-pin-transaction.log" 2>&1; then
         tail -20 "$BUILD_DIR/x86_64/wlroots-pin-transaction.log"
         die "pacman -U of the phosh-compat wlroots failed (full log: test/build/x86_64/wlroots-pin-transaction.log)"
@@ -604,6 +607,9 @@ EOF
     fi
     if ! pacman -r "$rootfs_dir" --config "$BUILD_DIR/x86_64/pacman-local-pin.conf" \
             -U "$cached_pkg" --noconfirm \
+            --overwrite "usr/include/wlroots-0.20/*" \
+            --overwrite "usr/lib/libwlroots-0.20.so" \
+            --overwrite "usr/lib/pkgconfig/wlroots-0.20.pc" \
             > "$BUILD_DIR/x86_64/phoc-pin-transaction.log" 2>&1; then
         tail -20 "$BUILD_DIR/x86_64/phoc-pin-transaction.log"
         die "pacman -U of the phoc IM-grab-fix build failed (full log: test/build/x86_64/phoc-pin-transaction.log)"
