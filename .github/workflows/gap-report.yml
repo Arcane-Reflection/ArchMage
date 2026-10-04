@@ -39,20 +39,23 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          # bsdtar lives in libarchive-tools on Ubuntu (the plan's
-          # "按 runner 发行版处理"); vercmp comes with the pacman package;
-          # jq is preinstalled but pinned here anyway.
-          sudo apt-get install -y --no-install-recommends \
-            jq libarchive-tools pacman
-          bsdtar --version
-          vercmp 1.0 1.1 || test $? -eq 255
+          sudo apt-get install -y --no-install-recommends jq
           jq --version
 
       - name: Run aarch64 gap report
         # Non-zero exit (threshold alert) fails this step => red workflow.
+        # Runs inside the Arch container: vercmp ships in pacman-contrib and
+        # apt's "pacman" package is an unrelated game (first-run failure).
+        # TUNA reachable from the runner; report lands in ./report on the
+        # mounted workspace.
         run: |
           set -euo pipefail
-          bash tools/reports/aarch64-gap.sh --out report
+          mkdir -p report
+          docker run --rm -v "$PWD:/w" -w /w archlinux:base bash -c '
+            set -euo pipefail
+            pacman -Sy --noconfirm pacman-contrib libarchive curl jq >/dev/null
+            vercmp 1.0 1.1 >/dev/null && echo "vercmp ok"
+            bash tools/reports/aarch64-gap.sh --out report'
 
       - name: Upload gap-report artifact
         # v7.0.1
