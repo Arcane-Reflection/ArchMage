@@ -138,10 +138,22 @@ if [ "$INNER" = no ]; then
         bash "$SCRIPT_DIR/mkrootfs-aarch64.sh" "${MKROOTFS_ARGS[@]}"
     fi
 
-    if ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
-        archmage_info "qemu-system-aarch64 missing on host — self-wrapping the QEMU phase in an archlinux container (qemu-emulators-full; qemu-desktop only ships x86_64 emulators)"
+    # ARCHMAGE_FORCE_WRAP=1 skips the host qemu even when present — the
+    # Ubuntu runner qemu produced a VNC display and ZERO serial bytes
+    # (runs 37119945808/37130418440/37169011433), i.e. the guest never ran.
+    # The Arch container qemu is the verified-good path.
+    if [ "${ARCHMAGE_FORCE_WRAP:-0}" = "1" ] || ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
+        archmage_info "self-wrapping the QEMU phase in an Arch container (qemu-system-aarch64 from ALARM repos)"
         archmage::engine_detect
-        WRAP_ARGS=(--rm --platform linux/x86_64 -v "$REPO_ROOT":/w -w /w)
+        # Platform: native by default; the wrapper image must match the host
+        # arch (menci/archlinuxarm is multi-arch; ghcr archlinux:base is not).
+        WRAP_ARGS=(--rm -v "$REPO_ROOT":/w -w /w)
+        if [ -n "${ARCHMAGE_WRAP_PLATFORM:-}" ]; then
+            WRAP_ARGS+=(--platform "$ARCHMAGE_WRAP_PLATFORM")
+        fi
+        # The inner qemu hostfwd binds the CONTAINER's loopback; publish it
+        # to the host loopback (T-01-06 still holds: loopback only).
+        WRAP_ARGS+=(-p 127.0.0.1:2222:2222)
         if archmage::kvm_available; then
             WRAP_ARGS+=(--device /dev/kvm)
         fi
@@ -158,8 +170,10 @@ if [ "$INNER" = no ]; then
         fi
         set +e
         # shellcheck disable=SC2086
-        "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" archlinux:base bash -c \
-            "pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs >/dev/null 2>&1 && bash test/smoke-aarch64.sh $INNER_CMD"
+        WRAP_IMAGE="${ARCHMAGE_WRAP_IMAGE:-archlinux:base}"
+        "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" "$WRAP_IMAGE" bash -c \
+            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\\[options\\]\$/[options]\\nDisableSandbox/' /etc/pacman.conf; \
+             pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs >/dev/null 2>&1 && bash test/smoke-aarch64.sh $INNER_CMD"
         RC=$?
         set -e
         exit "$RC"

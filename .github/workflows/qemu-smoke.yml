@@ -110,11 +110,11 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           # On Ubuntu/Debian the qemu-system-aarch64 binary ships in the
-          # qemu-system-arm package (there is no qemu-system-aarch64 apt
+          #  package (there is no qemu-system-aarch64 apt
           # package). The runner's container engine is preinstalled — the
           # scripts fail-fast with repair commands if its daemon is down.
           sudo apt-get install -y --no-install-recommends \
-            qemu-system-arm jq e2fsprogs openssh-client
+             jq e2fsprogs openssh-client
           qemu-system-aarch64 --version | head -1
           docker info >/dev/null
 
@@ -143,6 +143,9 @@ jobs:
         # always ships serial/console evidence via the stage step.
         id: smoke
         continue-on-error: true
+        env:
+          ARCHMAGE_FORCE_WRAP: '1'
+          ARCHMAGE_WRAP_IMAGE: menci/archlinuxarm:base
         run: |
           set -euo pipefail
           # --accel auto: native TCG on this arm64 runner (GitHub hosted
