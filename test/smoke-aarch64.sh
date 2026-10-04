@@ -178,7 +178,7 @@ if [ "$INNER" = no ]; then
         echo "wrap: args=${WRAP_ARGS[*]}"
         "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" "$WRAP_IMAGE" bash -c \
             "printf '\\n[options]\\nDisableSandbox\\n' >> /etc/pacman.conf; \
-             pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs && bash test/smoke-aarch64.sh $INNER_CMD"
+             pacman -Sy --noconfirm qemu-system-aarch64 openssh jq e2fsprogs && bash test/smoke-aarch64.sh $INNER_CMD"
         RC=$?
         if [ "$RC" -ne 0 ]; then
             echo "wrap failed rc=$RC — engine diagnostics follow" >&2
