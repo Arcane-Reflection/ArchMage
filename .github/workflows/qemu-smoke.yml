@@ -105,17 +105,17 @@ jobs:
             --dir "$RUNNER_TEMP/staging-repo"
           ls -la "$RUNNER_TEMP/staging-repo"
 
-      - name: Install host QEMU and tools
+      - name: Install host tools (QEMU comes from the Arch container)
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          # On Ubuntu/Debian the qemu-system-aarch64 binary ships in the
-          #  package (there is no qemu-system-aarch64 apt
-          # package). The runner's container engine is preinstalled — the
-          # scripts fail-fast with repair commands if its daemon is down.
+          # Host only needs ssh/jq/e2fsprogs: the guest QEMU now runs inside
+          # the Arch container (smoke self-wrap) — the Ubuntu qemu never
+          # started the guest (VNC + zero serial, see WINDOWS.md CI notes).
+          # The runner's container engine is preinstalled — the scripts
+          # fail-fast with repair commands if its daemon is down.
           sudo apt-get install -y --no-install-recommends \
              jq e2fsprogs openssh-client
-          qemu-system-aarch64 --version | head -1
           docker info >/dev/null
 
       - name: Shellcheck the harness scripts
