@@ -65,3 +65,37 @@ input-method 接口)接入图形会话:
 - 上游问题(candidates:fcitx5 / phoc / wlroots 的 IM grab 崩溃类)按
   overlay-only 纪律以个人名义回馈上游,不在本仓库 fork 规避
   (STRATEGY §4/§5,CONTRIBUTING §1)。
+
+## 虚拟键盘排查档案(2026-10-04,stevia 时代)
+
+### 现象与最终形态
+
+- stevia 0.57 已接管 im-v2 席位(顶替 fcitx5 waylandim,后者自启动已压制);
+- `sm.puri.OSK0 SetVisible true` **可强制展开键盘并正常打字**(英文);
+- **自动展开/收起不工作**:任意应用(含 text-input-v3 正规的 GTK4 应用)聚焦时,
+  stevia 收到 `zwp_input_method_v2.activate()` 但选择不展开(WAYLAND_DEBUG 抓包,
+  activate 后零表面创建);hunspell 词典缺失会加剧(`Failed to init completer`)。
+
+### 排查链(每环有证据)
+
+1. fcitx5 包自带 XDG 自启动 → 抢占 im-v2 唯一席位 → stevia 收 `unavailable()`。
+   修复:压制自启动(镜像已烘焙)。
+2. phosh 0.57 的 DBus 面:名字 `sm.puri.OSK0`(无 org 前缀)、路径 `/sm/puri/OSK0`、
+   `Visible` 属性只读、展开用 `SetVisible b true` 方法。旧文档的
+   `org.sm.puri.OSK0` + `/org/sm/puri/OSK0` + 可写 Visible 全部过时。
+3. `display-manager.service` 是绝对路径符号链接:verify 的 `-e` 测试会解析到
+   验证容器自身根(greetd 未装于容器)→ 永假。检查用 `-L`。
+4. `osk_old` 断言语义:初始必须 `absent`(首版写成 `yes` 导致永红——断言 bug)。
+5. 遗留开放项:activate 收到但不展开。下一层线索:
+   - `mobi.phosh.osk` schema(mobile-settings 带来)的 `scaling`(auto-portrait/
+     auto-landscape)与 `osk-features`;
+   - phosh-mobile-settings 的 OSK 面板里是否有额外启用项;
+   - stevia 上游 issue(带本档案的 WAYLAND_DEBUG 抓包可复现)。
+6. 中文路线:stevia 中文走 uim(Arch 仓库缺,Debian 有 phosh-osk-stevia-uim
+   分包参照);P1 自建键盘走 fcitx5 VirtualKeyboardBackend DBus
+   (clear-code/fcitx5-virtualkeyboard-ui 参考实现)。
+
+### 镜像内容(已烘焙)
+
+greetd(自动登录 archmage/PIN 1234)+ seatd + pixman 渲染 + stevia +
+phosh-mobile-settings + hunspell-en_us + fcitx5 自启动压制。
