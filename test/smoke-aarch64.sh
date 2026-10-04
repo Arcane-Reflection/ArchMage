@@ -277,7 +277,6 @@ qemu-system-aarch64 \
     -drive file="$AARCH64_DIR/rootfs.ext4",if=virtio,format=raw \
     -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)" \
     -device virtio-net-pci,netdev=n0,romfile= \
-
     -display none -monitor none -no-reboot \
     -serial "file:$SERIAL_LOG" \
     -pidfile "$PID_FILE" \
