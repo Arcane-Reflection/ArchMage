@@ -177,7 +177,7 @@ if [ "$INNER" = no ]; then
         echo "wrap: engine=$ARCHMAGE_ENGINE image=$WRAP_IMAGE"
         echo "wrap: args=${WRAP_ARGS[*]}"
         "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" "$WRAP_IMAGE" bash -c \
-            "grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\\[options\\]\\$/[options]\\nDisableSandbox/' /etc/pacman.conf; \
+            "printf '\\n[options]\\nDisableSandbox\\n' >> /etc/pacman.conf; \
              pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs && bash test/smoke-aarch64.sh $INNER_CMD"
         RC=$?
         if [ "$RC" -ne 0 ]; then
