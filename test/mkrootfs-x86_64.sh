@@ -908,7 +908,8 @@ SFDISK
         "${WAYDROID_PKGS[@]}" \
         grub grub-btrfs snapper snap-pac btrfs-progs dosfstools \
         archmage-cn archmage-phosh-safety archmage-cn-apn \
-        archmage-btrfs-rollback archmage-fcitx5-osk
+        archmage-btrfs-rollback \
+        greetd seatd stevia phosh-mobile-settings hunspell-en_us
 
     # Space guard: the sparse image allocation must still leave >= 1 GiB free
     # on the btrfs data subvolume for in-VM pacman transactions (the smoke's
@@ -1049,6 +1050,29 @@ EOF
 [org/gnome/desktop/screensaver]
 lock-enabled=false
 EOF
+
+    # 4c) Interactive desktop stack (2026-10-04 VM session bake): greetd
+    #     auto-login straight into the user's phosh session; seatd owns the
+    #     seat (logind relay flaky in QEMU); pixman renderer (virtio-gpu GL
+    #     shows artifact flicker — 03-01 IME matrix used pixman too). stevia
+    #     is the OSK (replaced the interim fcitx5-osk shim — the two are
+    #     structurally exclusive on the single zwp_input_method_v2 slot).
+    archmage_info "baking interactive desktop: greetd(auto-login archmage) + seatd + stevia"
+    chroot "$ROOTFS_DIR" /bin/bash -ec '
+        set -euo pipefail
+        useradd -m -u 1000 -G wheel,video,audio,input,seat archmage
+        echo "archmage:1234" | chpasswd
+        mkdir -p /etc/greetd
+        cat > /etc/greetd/config.toml <<GREETD
+[terminal]
+vt = 7
+
+[default_session]
+command = "env WLR_RENDERER=pixman phosh-session"
+user = "archmage"
+GREETD
+        systemctl enable greetd.service seatd.service
+    '
 
     # 5) One-time smoke key injection. Root gets password field '*' (no
     #    password login possible, pubkey auth unaffected — 01-02 decision).

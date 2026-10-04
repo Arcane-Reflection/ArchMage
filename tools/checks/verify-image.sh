@@ -444,23 +444,34 @@ fi
 #     - squeekboard is ABSENT from the local db (structural evidence of the
 #       full-replacement decision — Conflicts means both can never be
 #       installed, so its absence proves the replacement transaction ran).
+# 2026-10-04 OSK scheme decision (STRATEGY §5.2): stevia is the keyboard UI
+# (the fcitx5-osk shim lost the structural im-v2 slot experiment; the fcitx5
+# ENGINE + chinese-addons stay as the P1 custom-keyboard backend). Contract:
+#     - stevia in the pacman local db; archmage-fcitx5-osk ABSENT;
+#     - stevia's own OSK0 desktop + user unit in place;
+#     - greetd + seatd enabled (interactive desktop stack);
+#     - squeekboard still absent.
 OSK_DB_DIR=$MNT/var/lib/pacman/local
 osk_db=no
-for d in "$OSK_DB_DIR"/archmage-fcitx5-osk-*/; do
+for d in "$OSK_DB_DIR"/stevia-*/; do
     if [ -d "$d" ]; then osk_db=yes; break; fi
 done
+osk_old=yes
+ls -d "$OSK_DB_DIR"/archmage-fcitx5-osk-* >/dev/null 2>&1 && osk_old=present
 osk_missing=""
 [ -f "$MNT/usr/share/applications/sm.puri.OSK0.desktop" ] || osk_missing="${osk_missing:+$osk_missing; }sm.puri.OSK0.desktop"
 [ -f "$MNT/usr/lib/systemd/user/mobi.phosh.OSK.service" ] || osk_missing="${osk_missing:+$osk_missing; }mobi.phosh.OSK.service"
-[ -f "$MNT/usr/lib/archmage/archmage-osk0-shim" ] || osk_missing="${osk_missing:+$osk_missing; }archmage-osk0-shim"
-[ -f "$MNT/usr/lib/environment.d/10-archmage-ime.conf" ] || osk_missing="${osk_missing:+$osk_missing; }10-archmage-ime.conf"
-[ -f "$MNT/etc/xdg/fcitx5/profile" ] || osk_missing="${osk_missing:+$osk_missing; }fcitx5 profile"
+greetd_enabled=no
+[ -e "$MNT/etc/systemd/system/display-manager.service" ] && greetd_enabled=yes
+seatd_enabled=no
+ls -d "$MNT/etc/systemd/system/multi-user.target.wants/seatd.service" >/dev/null 2>&1 && seatd_enabled=yes
 squeekboard_absent=yes
 ls -d "$OSK_DB_DIR"/squeekboard-* >/dev/null 2>&1 && squeekboard_absent=no
-if [ "$osk_db" = yes ] && [ -z "$osk_missing" ] && [ "$squeekboard_absent" = yes ]; then
-    record ime_osk_present pass "archmage-fcitx5-osk in local db; OSK0 contract five files in place (desktop/unit/shim/env/profile); squeekboard absent (full replacement)"
+if [ "$osk_db" = yes ] && [ "$osk_old" = absent ] && [ -z "$osk_missing" ] \
+   && [ "$greetd_enabled" = yes ] && [ "$seatd_enabled" = yes ] && [ "$squeekboard_absent" = yes ]; then
+    record ime_osk_present pass "stevia OSK in local db (fcitx5-osk removed); greetd auto-login + seatd enabled; squeekboard absent"
 else
-    record ime_osk_present fail "IME OSK contract broken: archmage-fcitx5-osk in db=$osk_db, missing files=[$osk_missing], squeekboard absent=$squeekboard_absent"
+    record ime_osk_present fail "OSK contract (stevia era) broken: stevia in db=$osk_db, fcitx5-osk still=$osk_old, missing=[$osk_missing], greetd=$greetd_enabled, seatd=$seatd_enabled, squeekboard absent=$squeekboard_absent"
 fi
 
 # (f) Waydroid factory layer made it into the image (03-02, APPS-01 machine
