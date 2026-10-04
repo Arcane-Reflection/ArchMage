@@ -1071,7 +1071,13 @@ vt = 7
 command = "env WLR_RENDERER=pixman phosh-session"
 user = "archmage"
 GREETD
-        systemctl enable greetd.service seatd.service
+        systemctl enable greetd.service seatd.service 2>/dev/null || {
+            # pacstrap stage has no running PID 1 — wire the enable symlinks
+            # by hand (same layout systemctl would create).
+            mkdir -p /etc/systemd/system/multi-user.target.wants
+            ln -sf /usr/lib/systemd/system/seatd.service /etc/systemd/system/multi-user.target.wants/seatd.service
+            ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service
+        }
     '
 
     # 5) One-time smoke key injection. Root gets password field '*' (no
