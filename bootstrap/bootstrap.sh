@@ -357,7 +357,7 @@ fi
 exec /usr/bin/makepkg.real "$@"
 MAKEPKGWRAP
     chmod 755 /usr/bin/makepkg
-    makepkg --version | head -1
+    makepkg --version
 
     # 2) kbs from the pinned upstream tag (official gitlab.com/kupfer source).
     local venv=/opt/kbs-venv
