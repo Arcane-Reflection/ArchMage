@@ -411,18 +411,40 @@ jobs:
           today="$(date -u +%Y%m%d)"
           notes="$(printf 'ArchMage nightly images (auto-built %s)\n\nAssets: op6 (tier=device-pending: structure-verified, device boot pending 02-02/03) and x86_64 QEMU (tier=qemu: CI-booted to SSH). Verify with the .sha256 and .sig files — see README "镜像发布".' "$(date -u +%Y-%m-%d)")"
 
+          # GitHub caps release assets at 2 GiB; the x86_64 QEMU image (xz)
+          # measures ~3.5 GiB (run 37263213498: upload 422 Validation Failed).
+          # Split oversized files into 1900 MiB parts — rejoin with
+          # `cat <name>.img.xz.part-* > <name>.img.xz`; .sha256/.sig keep
+          # referring to the JOINED file.
+          prepared=release-assets/prepared
+          mkdir -p "$prepared"
+          join_notes="$prepared/REJOIN-SPLIT-ASSETS.txt"
+          : > "$join_notes"
+          for f in release-assets/op6/* release-assets/qemu-x86_64/*; do
+            [ -f "$f" ] || continue
+            if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
+              cp "$f" "$prepared/"
+            else
+              base=$(basename "$f")
+              split -b 1900m -d --numeric-suffixes=00 --additional-suffix=.part \
+                "$f" "$prepared/$base."
+              printf '%s exceeds the 2 GiB release asset cap and ships split as %s.<NN>.part (1900 MiB each) — rejoin before verifying:\n  cat %s.*.part > %s\n(the .sha256/.sig assets verify the JOINED file)\n\n' \
+                "$base" "$base" "$base" "$base" >> "$join_notes"
+            fi
+          done
+
           if gh release view "nightly-${today}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "nightly-${today}" release-assets/op6/* release-assets/qemu-x86_64/* \
+            gh release upload "nightly-${today}" "$prepared"/* \
               --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "nightly-${today}" release-assets/op6/* release-assets/qemu-x86_64/* \
+            gh release create "nightly-${today}" "$prepared"/* \
               --prerelease --target "$GITHUB_SHA" \
               --title "ArchMage nightly ${today}" \
               --notes "$notes" --repo "$GITHUB_REPOSITORY"
           fi
 
           gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-          gh release create nightly release-assets/op6/* release-assets/qemu-x86_64/* \
+          gh release create nightly "$prepared"/* \
             --prerelease --target "$GITHUB_SHA" \
             --title "ArchMage nightly (moving)" \
             --notes "$notes" --repo "$GITHUB_REPOSITORY"
