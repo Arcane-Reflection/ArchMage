@@ -665,7 +665,12 @@ PYEOF
     debugfs -R "dump /aboot.img $aboot_img" "$boot_img" >/dev/null 2>&1
     [ -s "$aboot_img" ] || die "failed to extract /aboot.img from $boot_img (device flavour did not produce an Android boot image?)"
 
-    umount "$mnt"
+    # gpg-agent, spawned by the pacman-key lsign calls, daemonizes with its
+    # homedir INSIDE the loop mount and keeps it busy — plain umount fails
+    # EBUSY (exit 32, run 37260366462). Kill it, then unmount.
+    GNUPGHOME="$gpgdir" gpgconf --kill gpg-agent 2>/dev/null || true
+    sleep 1
+    umount "$mnt" || umount -l "$mnt"
     trap - EXIT INT TERM
 
     # 9) Hand everything back to the invoking host user.
