@@ -56,6 +56,11 @@ device = "sdm845-oneplus-enchilada"
 flavour = "phosh"
 hostname = "archmage"
 username = "archmage"
+# kbs image.py create_user passes profile["password"] to chpasswd; without
+# it kbs falls back to interactive `passwd` which cannot work headless
+# (run 37255989563: "Password change has been aborted"). Dev-image default,
+# same convention as the x86_64 test image (archmage/1234, phosh lock PIN).
+password = "1234"
 # Rootfs headroom for the CN layer (noto-fonts-cjk et al.) installed in
 # bootstrap.sh stage 2.
 size_extra_mb = 2000
