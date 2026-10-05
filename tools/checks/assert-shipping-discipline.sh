@@ -354,13 +354,19 @@ fi
 record siglevel_policy "$sig_status" "$sig_details"
 
 # --------------------------------------------------------------------------
-# 3) No Qualcomm device-extracted firmware blobs outside linux-firmware
+# 3) No Qualcomm device-extracted firmware blobs outside distro firmware pkgs
 # --------------------------------------------------------------------------
 # Whitelist: files owned by any linux-firmware* package in the rootfs pacman
-# local db (covers the split linux-firmware-qcom etc. layout).
+# local db (covers the split linux-firmware-qcom etc. layout) PLUS firmware-*
+# distro device packages — the OP6 image ships kupfer's
+# firmware-sdm845-oneplus (modem/wlan/venus blobs extracted upstream, the
+# sanctioned mainline-mobile channel; postmarketOS lineage). QUAL-01's intent
+# is unchanged: ArchMage's OWN overlay packages still may not ship blobs —
+# only signed distro firmware packages are whitelisted.
 WHITELIST=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-wl.XXXXXX")
 FOUND=$(mktemp "${TMPDIR:-/tmp}/archmage-discipline-found.XXXXXX")
-for dbdir in "$ROOTFS"/var/lib/pacman/local/linux-firmware*/; do
+for dbdir in "$ROOTFS"/var/lib/pacman/local/linux-firmware*/ \
+             "$ROOTFS"/var/lib/pacman/local/firmware-*/; do
     [ -f "$dbdir/files" ] || continue
     awk '
         /^%[A-Z]+%$/ { next }
