@@ -19,7 +19,7 @@
 #                                               # downloaded artifact dir
 # Environment:
 #   ARCHMAGE_GH_REPO   GitHub <owner>/<repo> for --from-ci
-#                  (default: uMaj35ty/ArchMage)
+#                  (default: Arcane-Reflection/ArchMage)
 #
 # Internal flag (do not pass): --inner — re-executed inside the aarch64
 # build container by the host phase.
@@ -49,7 +49,7 @@ Options:
 
 Environment:
   ARCHMAGE_GH_REPO     GitHub <owner>/<repo> for --from-ci
-                   (default: uMaj35ty/ArchMage)
+                   (default: Arcane-Reflection/ArchMage)
 
 Outputs (test/build/aarch64/):
   Image, initramfs-linux.img   kernel + initramfs from the rootfs /boot
@@ -105,7 +105,7 @@ CACHE_DIR=$BUILD_DIR/cache
 STAGING_DIR=$BUILD_DIR/staging-repo
 ROOTFS_DIR=$AARCH64_DIR/rootfs
 
-ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-uMaj35ty/ArchMage}
+ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-Arcane-Reflection/ArchMage}
 
 TARBALL_NAME=ArchLinuxARM-aarch64-latest.tar.gz
 CACHE_FILE=$CACHE_DIR/$TARBALL_NAME

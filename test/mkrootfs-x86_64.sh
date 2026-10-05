@@ -51,7 +51,7 @@
 #                                            # downloaded artifact dir
 # Environment:
 #   ARCHMAGE_GH_REPO   GitHub <owner>/<repo> for --from-ci
-#                  (default: uMaj35ty/ArchMage)
+#                  (default: Arcane-Reflection/ArchMage)
 #
 # Internal flag (do not pass): --inner — re-executed inside the x86_64 build
 # container by the host phase.
@@ -79,7 +79,7 @@ Options:
 
 Environment:
   ARCHMAGE_GH_REPO     GitHub <owner>/<repo> for --from-ci
-                   (default: uMaj35ty/ArchMage)
+                   (default: Arcane-Reflection/ArchMage)
 
 Outputs (test/build/x86_64/):
   vmlinuz-linux, initramfs-linux.img   kernel + initramfs for -kernel boot
@@ -135,7 +135,7 @@ X86_64_DIR=$BUILD_DIR/x86_64
 STAGING_DIR=$BUILD_DIR/staging-repo
 ROOTFS_DIR=$X86_64_DIR/rootfs
 
-ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-uMaj35ty/ArchMage}
+ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-Arcane-Reflection/ArchMage}
 
 # x86_64 phosh stack from official Arch extra (research STACK.md: phosh is
 # in extra). Minimal set on purpose — the graphical session is informational

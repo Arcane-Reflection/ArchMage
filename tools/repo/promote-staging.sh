@@ -40,7 +40,7 @@
 #
 # Environment:
 #   ARCHMAGE_GH_REPO   GitHub <owner>/<repo> for --from-ci
-#                      (default: uMaj35ty/ArchMage)
+#                      (default: Arcane-Reflection/ArchMage)
 #   STABLE_KEY_FPR     Default for --key in --real mode
 #   GNUPGHOME          used as-is in --real mode (default ~/.gnupg)
 
@@ -71,7 +71,7 @@ REPO_DIR_ARG=""
 OUT_DIR_ARG=""
 MIN_AGE_DAYS=""
 KEY_FPR="${STABLE_KEY_FPR:-}"
-ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-uMaj35ty/ArchMage}
+ARCHMAGE_GH_REPO=${ARCHMAGE_GH_REPO:-Arcane-Reflection/ArchMage}
 
 while [ $# -gt 0 ]; do
     case "$1" in
