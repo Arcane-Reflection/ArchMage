@@ -478,11 +478,31 @@ PYEOF
     # bash unwinds the frame BEFORE running the EXIT trap, so `local` vars
     # are gone and "$mnt" would die under set -u (run 37258537871).
     cleanup_mount() {
+        umount /mnt/archmage-rootfs/dev 2>/dev/null || true
+        umount /mnt/archmage-rootfs/sys 2>/dev/null || true
+        umount /mnt/archmage-rootfs/proc 2>/dev/null || true
         umount /mnt/archmage-rootfs 2>/dev/null || true
+    }
+    # Scriptlet-visible kernel mounts: `pacman -r` chroots scriptlets and
+    # alpm hooks into the image, and mkinitcpio hooks hard-fail without
+    # /proc ("==> ERROR: /proc must be mounted!", run 37260366462) — the
+    # archmage-btrfs-rollback initramfs rebuild silently never ran on the
+    # OP6 path. Bind the pseudofs trio for the transaction window.
+    mount_chroot_pseudo() {
+        mount -t proc proc /mnt/archmage-rootfs/proc 2>/dev/null || true
+        mount -t sysfs sys /mnt/archmage-rootfs/sys 2>/dev/null || true
+        mount --bind /dev /mnt/archmage-rootfs/dev 2>/dev/null || true
+    }
+    umount_chroot_pseudo() {
+        umount /mnt/archmage-rootfs/dev 2>/dev/null || true
+        umount /mnt/archmage-rootfs/sys 2>/dev/null || true
+        umount /mnt/archmage-rootfs/proc 2>/dev/null || true
     }
     trap cleanup_mount EXIT INT TERM
     mount -o loop "$root_img" "$mnt"
     [ -s "$mnt/etc/pacman.conf" ] || die "mounted rootfs has no /etc/pacman.conf"
+    mkdir -p /mnt/archmage-rootfs/{proc,sys,dev}
+    mount_chroot_pseudo
 
     gpgdir=$mnt/etc/pacman.d/gnupg
     mkdir -p "$gpgdir"
@@ -570,6 +590,9 @@ EOF
         archmage-cn archmage-phosh-safety \
         archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk \
         waydroid archmage-waydroid-config
+    # Transaction window over: scriptlets (mkinitcpio) have run — drop the
+    # pseudofs binds before stage 3 touches only plain files.
+    umount_chroot_pseudo
 
     # 7) Stage 3 — harden the shipped /etc/pacman.conf.
     archmage_info "stage 3: hardening shipped /etc/pacman.conf"
