@@ -1091,6 +1091,26 @@ GREETD
         # keyboard backend, fcitx5-chinese-addons) but must NOT autostart
         # while stevia owns the slot.
         chmod -x /etc/xdg/autostart/org.fcitx.Fcitx5.desktop 2>/dev/null || true
+
+        # QEMU hardware-keyboard exception (pmOS-style, 2026-10-05 diagnosis):
+        # phosh suppresses OSK auto-unfold while a libinput keyboard exists
+        # (mobi.phosh.osk ignore-hw-keyboards, default false = detection on)
+        # — the VM's QEMU PS/2 keyboard is exactly such a device, so the
+        # focus-driven unfold never fired even with stevia healthy (forced
+        # SetVisible always worked; a real device has no hw keyboard).
+        # DEV VM ONLY: system dconf default ignores the detection. Device
+        # images are built by mkrootfs-aarch64/kbs, which never ship this file.
+        mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+        [ -f /etc/dconf/profile/user ] || \
+            printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+        cat > /etc/dconf/db/local.d/00-vm-osk-ignore-hw-kbd <<'OSKKEY'
+# ArchMage DEV VM ONLY (mkrootfs-x86_64): QEMU's PS/2 keyboard counts as an
+# attached hardware keyboard, and phosh then never auto-unfolds the OSK.
+# Ignore the detection here; device images do not ship this override.
+[mobi/phosh/osk]
+ignore-hw-keyboards=true
+OSKKEY
+        dconf update
     '
 
     # 5) One-time smoke key injection. Root gets password field '*' (no

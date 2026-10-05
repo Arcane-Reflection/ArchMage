@@ -99,3 +99,35 @@ input-method 接口)接入图形会话:
 
 greetd(自动登录 archmage/PIN 1234)+ seatd + pixman 渲染 + stevia +
 phosh-mobile-settings + hunspell-en_us + fcitx5 自启动压制。
+
+## 2026-10-05 破案:自动展开的真凶 = QEMU 硬件键盘抑制(推翻"断点在 stevia 内部")
+
+### 证据链(headless VM + SSH 取证,run 全程可复现)
+
+1. **`mobi.phosh.osk ignore-hw-keyboards`**(默认 false = 检测开启):phosh
+   在检测到 libinput 硬件键盘时**抑制 OSK 自动展开**——QEMU 默认的 PS/2
+   键盘正是这样的设备。pmOS 的 QEMU 镜像同款例外设置。
+   这同时解释了:强制 `SetVisible b true` 一直可用(绕过该门禁)、
+   真机上预期不会有此问题(无硬件键盘)。
+2. **GTK4 `text_input_v3` 的 enable 是键盘焦点门控**:WAYLAND_DEBUG 实测
+   app 绑定 manager、创建 text_input 对象后零请求——因为 headless 启动的
+   窗口从未收到 `wl_keyboard.enter`(计数 0)。GTK 内部 entry-focus-in
+   ≠ Wayland 键盘焦点。10-04 档案里"绑定却无 enable"由此而来。
+   被鼠标点过的应用(Console/Nautilus)能拿到焦点、会发 enable/disable
+   ("点输入框键盘反而折叠"=disable 生效)。
+3. 10-04 的"stevia 收到 activate 但不展开"结论存疑:phosh 在
+   hw-keyboard 门禁下可能根本没把 activate 送给 stevia;stevia 未必有错。
+
+### 修复(已烘焙 mkrootfs-x86_64.sh)
+
+`/etc/dconf/db/local.d/00-vm-osk-ignore-hw-kbd`:
+`[mobi/phosh/osk] ignore-hw-keyboards=true`(+ dconf update;profile user
+含 system-db local)。**仅 DEV VM 镜像携带**;设备镜像(aarch64/kbs)不
+带此文件,保持产品默认。
+
+### 待人工复验(下一步唯一动作)
+
+重建镜像或活机 `gsettings set mobi.phosh.osk ignore-hw-keyboards true`
+后,**交互点击文本框**:预期 OSK 自动展开。若仍不展开,才回到 stevia
+上游 issue(届时带本档案抓包)。顶部栏键盘图标缺失大概率同因(hw
+keyboard 在场时 phosh 隐藏 OSK 指示器)。
