@@ -338,10 +338,10 @@ container_main() {
     # whole pacstrap. parted/e2fsprogs cover partprobe/e2fsck/resize2fs which
     # kbs image/image.py calls at host level.
     pacman -Sy --noconfirm --needed \
-        arch-install-scripts base-devel git e2fsprogs parted rsync sudo \
+        arch-install-scripts base-devel git e2fsprogs parted rsync sudo openssh \
         archlinuxarm-keyring
     archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3 \
-        rsync parted partprobe e2fsck resize2fs
+        rsync parted partprobe e2fsck resize2fs ssh-keygen
 
     # Patch out makepkg's root refusal at container level — verbatim from the
     # upstream kbs Dockerfile. kbs (as root) shells out to makepkg for PKGBUILD
