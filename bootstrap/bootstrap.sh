@@ -332,10 +332,16 @@ container_main() {
     if ! grep -q '^DisableSandbox' /etc/pacman.conf; then
         sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
     fi
+    # rsync is mandatory: kbs chroot/build.py clones base_aarch64 with
+    # `rsync -a --delete` and swallows the "command not found" stderr, so a
+    # missing rsync only surfaces as "Failed to copy base_aarch64" after the
+    # whole pacstrap. parted/e2fsprogs cover partprobe/e2fsck/resize2fs which
+    # kbs image/image.py calls at host level.
     pacman -Sy --noconfirm --needed \
-        arch-install-scripts base-devel git e2fsprogs parted sudo \
+        arch-install-scripts base-devel git e2fsprogs parted rsync sudo \
         archlinuxarm-keyring
-    archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3
+    archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3 \
+        rsync parted partprobe e2fsck resize2fs
 
     # Non-root build user (upstream kupferbootstrap container design).
     # kbs itself stays ROOT (image build needs losetup/mount/copy); only
@@ -377,9 +383,11 @@ MAKEPKGWRAP
     cp "$KBS_TOML" "$WORK_DIR/kupferbootstrap.toml"
     ARCHMAGE_PYTHON=$KBS_PY
     check_config_files
-    chown -R kupfer:kupfer "$WORK_DIR" "$KBS_CACHE" /opt/kbs-venv 2>/dev/null || true
-    kbs() { sudo -u kupfer -H env HOME=/home/kupfer \
-        "$KBS_BIN" -C "$WORK_DIR/kupferbootstrap.toml" "$@"; }
+    # kbs runs as root (privileged container, upstream design); chroot
+    # internals that must not be root are handled by kbs itself (it patches
+    # the chroot's makepkg EUID check) — a `sudo -u kupfer` wrapper here
+    # breaks os.path.exists/ownership assumptions in create_rootfs.
+    kbs() { "$KBS_BIN" -C "$WORK_DIR/kupferbootstrap.toml" "$@"; }
 
     if [ "$MODE" = install-only ]; then
         # CLI smoke: --help short-circuits before the -C config load, hence
