@@ -449,6 +449,16 @@ PYEOF
     fi
 
     # 5) Stage 1 — upstream image assembly.
+    # kbs copy_ssh_keys asks via click.confirm to generate a host ssh key
+    # when $HOME/.ssh has none — that prompt aborts headless (no TTY) and
+    # killed the run 37256733476 right after the rootfs pacstrap. Pre-create
+    # an ephemeral per-run key so the flow stays non-interactive; kbs copies
+    # its pubkey into the image's authorized_keys (throwaway with the runner).
+    if [ ! -f /root/.ssh/id_ed25519 ]; then
+        mkdir -p /root/.ssh && chmod 700 /root/.ssh
+        ssh-keygen -f /root/.ssh/id_ed25519 -t ed25519 -N "" -C archmage-ci-ephemeral
+    fi
+
     archmage_info "stage 1: kbs image build $KBS_BUILD_PROFILE"
     kbs image build "$KBS_BUILD_PROFILE"
 
