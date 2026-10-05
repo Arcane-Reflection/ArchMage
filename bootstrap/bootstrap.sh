@@ -560,10 +560,13 @@ EOF
     # (overlay/apps, DIVERGENCE ledger) is the fallback line if ALARM/Arch
     # drop or lag the chain again. archmage-waydroid-config (depends=waydroid)
     # always comes from the staging repo.
+    # -r quirk: the file-conflict check reports root-prefixed paths, and
+    # --overwrite matching has varied across pacman versions — pass both
+    # the in-image and root-prefixed forms (additive flags).
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
         --noconfirm --needed -Sy \
-        --overwrite "/etc/locale.conf" \
+        --overwrite "/etc/locale.conf" --overwrite "$mnt/etc/locale.conf" \
         archmage-cn archmage-phosh-safety \
         archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk \
         waydroid archmage-waydroid-config
