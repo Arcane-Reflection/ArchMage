@@ -343,26 +343,13 @@ container_main() {
     archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3 \
         rsync parted partprobe e2fsck resize2fs
 
-    # Non-root build user (upstream kupferbootstrap container design).
-    # kbs itself stays ROOT (image build needs losetup/mount/copy); only
-    # makepkg invocations degrade to the unprivileged user via a PATH
-    # wrapper — makepkg refuses root outright, and running ALL of kbs as a
-    # plain user breaks its root-owned chroot copies (both observed live,
-    # 2026-10-04 CI image runs).
-    useradd -m -G wheel kupfer 2>/dev/null || true
-    printf 'kupfer ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/kupfer
-    chmod 440 /etc/sudoers.d/kupfer
-    mv /usr/bin/makepkg /usr/bin/makepkg.real
-    cat > /usr/bin/makepkg <<'MAKEPKGWRAP'
-#!/bin/bash
-# ArchMage build container: makepkg refuses root; transparently re-exec as
-# the unprivileged kupfer build user (sudo NOPASSWD) when invoked as root.
-if [ "$(id -u)" = 0 ]; then
-    exec sudo -u kupfer -H env HOME=/home/kupfer PATH="$PATH" /usr/bin/makepkg.real "$@"
-fi
-exec /usr/bin/makepkg.real "$@"
-MAKEPKGWRAP
-    chmod 755 /usr/bin/makepkg
+    # Patch out makepkg's root refusal at container level — verbatim from the
+    # upstream kbs Dockerfile. kbs (as root) shells out to makepkg for PKGBUILD
+    # srcinfo parsing and re-patches the chroot's own makepkg copy itself. A
+    # `sudo -u builduser` PATH wrapper here instead breaks srcinfo parsing with
+    # "no write permission for $BUILDDIR" on the root-owned pkgbuilds checkout
+    # (observed live, 2026-10-05 CI run 37253509343).
+    sed -i "s/EUID == 0/EUID == -1/g" /usr/bin/makepkg
     makepkg --version
 
     # 2) kbs from the pinned upstream tag (official gitlab.com/kupfer source).
