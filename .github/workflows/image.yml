@@ -64,7 +64,10 @@ concurrency:
 jobs:
   op6-image:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    # 120m: kbs builds the sdm845 kernel (linux-sdm845) from source on a
+    # 4-core arm runner — 45m (T-01-13 original budget) measured too tight
+    # once pkgbuild sourcing got past the aports mirror blocker.
+    timeout-minutes: 120
     permissions:
       # Build jobs never write repository content (publish-nightly is the
       # only job with contents:write).
