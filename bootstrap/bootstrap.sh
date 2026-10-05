@@ -432,6 +432,22 @@ with open(out_path, 'w') as fd:
 print(f'build-variant repos.local.yml written: {len(repos)} repos (archmage held for stage 2/3)')
 PYEOF
 
+    # gitlab.alpinelinux.org fronts raw file downloads with an anti-bot proxy
+    # (go-away, HTTP 418) that blocks datacenter runners, and hexagonrpcd pulls
+    # its udev rule from an aports commit there. The same commits are mirrored
+    # on raw.githubusercontent.com (content identical, checksums unaffected) —
+    # rewrite the host before kbs builds anything. Generic loop: any future
+    # PKGBUILD referencing aports raw gets the same treatment.
+    local aports_hits
+    aports_hits=$(grep -rl --include=PKGBUILD \
+        "gitlab.alpinelinux.org/alpine/aports/-/raw" "$KBS_PKG_BUILDS" || true)
+    if [ -n "$aports_hits" ]; then
+        while IFS= read -r f; do
+            sed -i 's#gitlab\.alpinelinux\.org/alpine/aports/-/raw/#raw.githubusercontent.com/alpinelinux/aports/#' "$f"
+            archmage_info "aports raw -> github mirror: $f"
+        done <<< "$aports_hits"
+    fi
+
     # 5) Stage 1 — upstream image assembly.
     archmage_info "stage 1: kbs image build $KBS_BUILD_PROFILE"
     kbs image build "$KBS_BUILD_PROFILE"
