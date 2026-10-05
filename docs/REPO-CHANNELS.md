@@ -70,9 +70,16 @@ staging-repo artifact)。
   随即添加签名子键:
   `gpg --quick-add-key <FPR> rsa2048 sign never`
   (never 过期 + 硬件介质 + rotation 承担风险控制,Phase 4 细化)。
-- **主键离库**:把主密钥导出(`gpg --export-secret-keys`)存入离线介质
-  (加密 U 盘/智能卡/纸质),从在线机器删除主密钥私钥,仅保留子键:
-  `gpg --delete-secret-keys <主键FPR>`(子键留驻)。
+- **主键离库(双导出序列——2026-10-05 演练验证)**:`gpg --delete-secret-keys
+  <主键FPR>` 会把**子键私钥一并删除**,单删主键没有直接命令。正确序列:
+  离线机依次 `gpg --export-secret-keys <主键FPR> > master.offline.asc`
+  (整键存离线介质/加密 U 盘;keygen 自动生成的吊销证书
+  `openpgp-revocs.d/*.rev` 一并离线保存)与
+  `gpg --export-secret-subkeys <主键FPR> > subkey.online.asc`
+  (仅子键私钥);在线机**只导入子键导出** `gpg --import subkey.online.asc`
+  —— 终态为 `gpg --list-secret-keys` 显示主键 `sec#`(公钥 stub,无私钥)
+  + 子键 `ssb+`(私钥在场),`--detach-sign --local-user <子键FPR>` 可签。
+  切勿在在线机导入 master.offline.asc。
 - **签名子键驻维护者宿主机**:导入子键(或直接用智能卡)。日常晋升
   (§2)只用子键;子键泄露时主键可撤销并签发新子键(见 §6)。
 - **介质纪律**:密钥介质不插任何 CI 机器、不进任何仓库、不进任何容器
