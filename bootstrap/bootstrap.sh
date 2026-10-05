@@ -474,8 +474,11 @@ PYEOF
 
     local mnt=/mnt/archmage-rootfs gpgdir
     mkdir -p "$mnt"
+    # Hardcode the mountpoint: after a set -e failure inside container_main,
+    # bash unwinds the frame BEFORE running the EXIT trap, so `local` vars
+    # are gone and "$mnt" would die under set -u (run 37258537871).
     cleanup_mount() {
-        umount "$mnt" 2>/dev/null || true
+        umount /mnt/archmage-rootfs 2>/dev/null || true
     }
     trap cleanup_mount EXIT INT TERM
     mount -o loop "$root_img" "$mnt"
@@ -531,6 +534,10 @@ Server = $stage2_server
 EOF
     archmage_info "stage 2: pacman -r install archmage-cn archmage-phosh-safety archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk waydroid archmage-waydroid-config (SigLevel Required, signed DB verified)"
     mkdir -p "$KBS_CACHE/pacman-image-cache"
+    # --overwrite /etc/locale.conf: kupfer's base-kupfer ships that file;
+    # archmage-cn-locale's zh_CN default is the intended winner (the x86_64
+    # pipeline never sees this because it has no base-kupfer). Pacman lists
+    # ALL conflicts before aborting, and this was the only one reported.
     # 03-01 full OSK replacement: the kupfer phosh flavour stage resolves
     # phosh's phosh-osk-provider dependency to squeekboard (or stevia) in
     # stage 1. archmage-fcitx5-osk Conflicts both — and pacman's
@@ -555,7 +562,9 @@ EOF
     # always comes from the staging repo.
     pacman -r "$mnt" --config "$stage2_conf" \
         --cachedir "$KBS_CACHE/pacman-image-cache" \
-        --noconfirm --needed -Sy archmage-cn archmage-phosh-safety \
+        --noconfirm --needed -Sy \
+        --overwrite "/etc/locale.conf" \
+        archmage-cn archmage-phosh-safety \
         archmage-cn-apn archmage-btrfs-rollback archmage-fcitx5-osk \
         waydroid archmage-waydroid-config
 
