@@ -632,6 +632,7 @@ container_main() {
     # sandbox — same scope rule as 01-02: throwaway roots only, never
     # shipped configs.
     printf 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch\n' \
+        'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch\n' \
         > /etc/pacman.d/mirrorlist
     if ! grep -q '^DisableSandbox' /etc/pacman.conf; then
         sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
@@ -683,10 +684,15 @@ CacheDir = /work/test/build/x86_64/pacman-cache
  DisableSandbox
 
 [core]
+# TUNA first (speed), official Arch second — TUNA occasionally throttles
+# ("Operation too slow <1 bytes/sec", run 37402779071); pacman falls
+# through servers on retrieval failure.
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
 
 [extra]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
 
 [archmage-testing]
 # ArchMage testing channel (= the packages.yml CI staging artifact; 03-03
