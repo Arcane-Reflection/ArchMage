@@ -1084,13 +1084,37 @@ GREETD
             ln -sf /usr/lib/systemd/system/seatd.service /etc/systemd/system/multi-user.target.wants/seatd.service
             ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service
         }
-        # the fcitx5 package ships an XDG autostart that grabs the single
-        # zwp_input_method_v2 slot at session start — stevia (the OSK) then
-        # gets zwp_input_method_v2.unavailable() and never unfolds (observed
-        # live 2026-10-04). The fcitx5 ENGINE stays installed (P1 custom
-        # keyboard backend, fcitx5-chinese-addons) but must NOT autostart
-        # while stevia owns the slot.
-        chmod -x /etc/xdg/autostart/org.fcitx.Fcitx5.desktop 2>/dev/null || true
+        # fcitx5's XDG autostart grabs the single zwp_input_method_v2 seat at
+        # session start — stevia (the OSK) then reports "Input method
+        # unavailable" and lingers DBus-alive but IM-dead, so focus-driven
+        # unfold/fold never fire (2026-10-06 root cause of the whole 10-04
+        # symptom set). XDG autostart does NOT honor the executable bit, so
+        # the earlier chmod -x never survived a session restart — REMOVE the
+        # file. The fcitx5 ENGINE stays installed (P1 custom keyboard
+        # backend, fcitx5-chinese-addons) but must not self-launch while
+        # stevia owns the slot.
+        rm -f /etc/xdg/autostart/org.fcitx.Fcitx5.desktop
+
+        # Stevia autostart: its desktop file carries X-GNOME-Autostart-Phase,
+        # which modern gnome-session skips entirely ("no longer manages
+        # session services"), so the session's RequiredComponents entry
+        # sm.puri.OSK0 never started anything. Ship a phase-less autostart
+        # copy; and cycle the user unit until the im-v2 bind sticks (stevia
+        # exits cleanly when it loses the startup race against phoc's IM
+        # global, then would linger IM-dead forever).
+        sed "/X-GNOME-Autostart-Phase/d" \
+            /usr/share/applications/sm.puri.OSK0.desktop \
+            > /etc/xdg/autostart/sm.puri.OSK0.desktop
+        mkdir -p /etc/systemd/user/mobi.phosh.OSK.service.d
+        cat > /etc/systemd/user/mobi.phosh.OSK.service.d/restart-until-im.conf <<'OSKRETRY'
+# Stevia gives up cleanly ("Input method unavailable") when it races phoc's
+# input-method global at session open, then lingers DBus-alive but IM-dead.
+# Cycle until a bind succeeds (a steady-state bind sticks, 2026-10-06).
+[Service]
+Restart=always
+RestartSec=2
+OSKRETRY
+        systemctl --global daemon-reload 2>/dev/null || true
 
         # QEMU hardware-keyboard exception (pmOS-style, 2026-10-05 diagnosis):
         # phosh suppresses OSK auto-unfold while a libinput keyboard exists
