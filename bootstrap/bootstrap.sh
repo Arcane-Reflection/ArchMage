@@ -448,6 +448,30 @@ PYEOF
         done <<< "$aports_hits"
     fi
 
+    # AOSP repo-state workaround (2026-10-06): upstream force-pushed an
+    # annotated TAG object onto mkbootimg's android17-security-release branch,
+    # and makepkg always mirror-clones ALL refs — every git source of that
+    # repo dies with "trying to write non-commit object" regardless of the
+    # #commit= fragment. The pinned commit is still served by fetch-by-SHA,
+    # so pre-fetch its full history into a local git mirror inside the
+    # pkgbuilds tree (basename `mkbootimg` = makepkg srcdir naming) and point
+    # the PKGBUILD at it. Chroot sees the tree at /pkgbuilds (kbs mount).
+    local mkb_pkgdir=$KBS_PKG_BUILDS/main/mkbootimg-git
+    local mkb_mirror=$KBS_PKG_BUILDS/main/mkbootimg
+    if [ -f "$mkb_pkgdir/PKGBUILD" ] && grep -q "android.googlesource.com/platform/system/tools/mkbootimg" "$mkb_pkgdir/PKGBUILD"; then
+        local mkb_commit
+        mkb_commit=$(sed -n 's/^_commit=//p' "$mkb_pkgdir/PKGBUILD")
+        [ -n "$mkb_commit" ] || die "mkbootimg-git PKGBUILD lost its _commit pin"
+        rm -rf "$mkb_mirror"
+        git init -q "$mkb_mirror"
+        git -C "$mkb_mirror" remote add origin \
+            https://android.googlesource.com/platform/system/tools/mkbootimg
+        git -C "$mkb_mirror" fetch -q origin "$mkb_commit"
+        git -C "$mkb_mirror" update-ref refs/heads/main FETCH_HEAD
+        sed -i "s#^url=.*#url=file:///pkgbuilds/main/mkbootimg#" "$mkb_pkgdir/PKGBUILD"
+        archmage_info "mkbootimg source -> local by-SHA mirror (AOSP branch poisoned by tag object)"
+    fi
+
     # 5) Stage 1 — upstream image assembly.
     # kbs copy_ssh_keys asks via click.confirm to generate a host ssh key
     # when $HOME/.ssh has none — that prompt aborts headless (no TTY) and
