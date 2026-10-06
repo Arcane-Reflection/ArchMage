@@ -131,3 +131,22 @@ phosh-mobile-settings + hunspell-en_us + fcitx5 自启动压制。
 后,**交互点击文本框**:预期 OSK 自动展开。若仍不展开,才回到 stevia
 上游 issue(届时带本档案抓包)。顶部栏键盘图标缺失大概率同因(hw
 keyboard 在场时 phosh 隐藏 OSK 指示器)。
+
+## 2026-10-06 终局:im-v2 席位被 fcitx5 盗占(chmod -x 对 XDG autostart 无效)
+
+1. **XDG autostart 不检查执行位**——10-04 的 chmod -x 从未生效,每次会话
+   fcitx5 照常拉起并绑定唯一 zwp_input_method_v2 席位。
+2. **stevia 的 "Input method unavailable" = 席位被占**;它优雅退出(
+   Restart=on-failure 不触发)后仍带 DBus 名生存——busctl 有
+   sm.puri.OSK0、进程在、IM 死。所有 text_input enable 进了无 UI 的
+   fcitx5 → 不展开也不收起。10-04 以来的全部症状(含"stevia 收到
+   activate 不展开"的误判)由此归一。
+3. 次要问题(已修):stevia 桌面文件带 X-GNOME-Autostart-Phase,现代
+   gnome-session 直接跳过 → 自启从未发生;启动与 phoc IM 全局存在竞态,
+   输了就 IM-dead 生存 → 单元加 Restart=always 循环绑定。
+
+修复烘焙:rm autostart 文件(fcitx5 引擎保留作 P1 后端)+ 无 Phase 的
+sm.puri.OSK0.desktop 进 autostart + Restart=always drop-in。
+验证:fcitx5 出场后 stevia 重启即绑定成功("Started Stevia" 无
+unavailable);合成指针注入在本环境未能驱动 seat 焦点,unfold/fold
+终验依赖 GUI 真实点击。
