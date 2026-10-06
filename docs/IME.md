@@ -150,3 +150,11 @@ sm.puri.OSK0.desktop 进 autostart + Restart=always drop-in。
 验证:fcitx5 出场后 stevia 重启即绑定成功("Started Stevia" 无
 unavailable);合成指针注入在本环境未能驱动 seat 焦点,unfold/fold
 终验依赖 GUI 真实点击。
+
+## 2026-10-06 终验通过:用户确认键盘自动弹出/收起正常
+
+修复组合(fcitx5 autostart 删除 + 无 Phase 的 stevia autostart +
+Restart=always drop-in + ignore-hw-keyboards)全部生效,OSK 自动展开与
+收起均正常。03-01 键盘问题线正式关闭;下一站 = P1 自定义键盘(quickshell
+UI + fcitx5 VirtualKeyboardBackend DBus,见 .planning/research/
+omarchy-quickshell-mobile-prep.md §3)。

@@ -557,17 +557,24 @@ NoProgressBar
 DisableSandbox
 GPGDir = $gpgdir
 
+# TUNA first (speed); official ALARM second — mirror sync lag has 404'd
+# fresh packages before (md4c 0.6.0-2, run 37397465929); pacman falls
+# through servers on retrieval failure.
 [core]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [extra]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [alarm]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [aur]
 Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/\$arch/\$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [archmage-testing]
 # ArchMage testing channel (= the packages.yml CI staging artifact; 03-03

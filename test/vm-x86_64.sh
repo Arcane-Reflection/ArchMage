@@ -235,10 +235,20 @@ archmage::require_cmd qemu-system-x86_64
 
 QEMU_ARGS=(-M q35 -m "$MEM" -smp 2
     -drive file="$IMAGE",if=virtio,format="$(detect_disk_format "$IMAGE")"
-    -device virtio-vga
     -device qemu-xhci -device usb-tablet
     -netdev user,id=n0,hostfwd="$(archmage::hostfwd_tcp 2222)"
     -device virtio-net-pci,netdev=n0)
+
+# virgl 3D is required for the waydroid runtime face: without it the guest
+# render node has no GL engine and Android SurfaceFlinger crash-loops in
+# RenderEngine init (black window). Fall back to plain virtio-vga when the
+# installed qemu lacks the -gl device (non-virgl builds).
+if qemu-system-x86_64 -device virtio-vga-gl,help >/dev/null 2>&1; then
+    QEMU_ARGS+=(-device virtio-vga-gl -display gtk,gl=on)
+else
+    archmage_warn "qemu has no virtio-vga-gl — waydroid will render black; install qemu-desktop"
+    QEMU_ARGS+=(-device virtio-vga)
+fi
 
 if [ "$ACCEL_LABEL" = kvm ]; then
     archmage_info "KVM available — accel=kvm"

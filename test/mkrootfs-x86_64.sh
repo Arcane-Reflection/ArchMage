@@ -1074,7 +1074,11 @@ EOF
 vt = 7
 
 [default_session]
-command = "env WLR_RENDERER=pixman phosh-session"
+# Software GL, not pixman: waydroid buffers can only be composited by a
+# GL renderer — under pixman its window is a black void (observed live
+# 2026-10-06). LIBGL_ALWAYS_SOFTWARE keeps llvmpipe, which also sidesteps
+# the 10-04 virtio-gpu hw-GL flicker by never touching hw GL.
+command = "env WLR_RENDERER=gles2 WLR_RENDERER_ALLOW_SOFTWARE=1 LIBGL_ALWAYS_SOFTWARE=1 phosh-session"
 user = "archmage"
 GREETD
         systemctl enable greetd.service seatd.service 2>/dev/null || {
