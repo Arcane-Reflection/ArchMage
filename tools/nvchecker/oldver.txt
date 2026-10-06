@@ -17,7 +17,7 @@
       "version": "1.1.53-1"
     },
     "libgbinder-alarm": {
-      "version": "1.1.52-1"
+      "version": "1.1.53-1"
     },
     "libgbinder-upstream": {
       "version": "1.1.53",
@@ -26,16 +26,16 @@
       "url": "https://github.com/mer-hybris/libgbinder/releases/tag/1.1.53"
     },
     "libglibutil": {
-      "version": "1.0.82-1"
+      "version": "1.0.83-1"
     },
     "libglibutil-alarm": {
       "version": "1.0.82-1"
     },
     "libglibutil-upstream": {
-      "version": "1.0.82",
-      "gitref": "refs/tags/1.0.82",
-      "revision": "8409b8650f12309f9d35a52acc2b07345fa15b11",
-      "url": "https://github.com/sailfishos/libglibutil/releases/tag/1.0.82"
+      "version": "1.0.83",
+      "gitref": "refs/tags/1.0.83",
+      "revision": "9724b391ae99ab12fee2f3a61f51aa72b97d56b5",
+      "url": "https://github.com/sailfishos/libglibutil/releases/tag/1.0.83"
     },
     "phosh-danctnix": {
       "version": "0.57.0"
