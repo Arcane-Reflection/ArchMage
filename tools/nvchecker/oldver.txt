@@ -20,16 +20,16 @@
       "version": "1.1.53-1"
     },
     "libgbinder-upstream": {
-      "version": "1.1.53",
-      "gitref": "refs/tags/1.1.53",
-      "revision": "4fb7b570129640c8ec063dcfb7dbdb420049e93b",
-      "url": "https://github.com/mer-hybris/libgbinder/releases/tag/1.1.53"
+      "version": "1.1.54",
+      "gitref": "refs/tags/1.1.54",
+      "revision": "36e136a2105dc5ac9541e9d7aad89cfde88d2747",
+      "url": "https://github.com/mer-hybris/libgbinder/releases/tag/1.1.54"
     },
     "libglibutil": {
       "version": "1.0.83-1"
     },
     "libglibutil-alarm": {
-      "version": "1.0.82-1"
+      "version": "1.0.83-1"
     },
     "libglibutil-upstream": {
       "version": "1.0.83",
