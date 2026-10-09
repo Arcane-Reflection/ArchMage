@@ -14,7 +14,7 @@
       "revision_creation_time": "2025-07-22T01:35:46.000+02:00"
     },
     "libgbinder": {
-      "version": "1.1.53-1"
+      "version": "1.1.54-1"
     },
     "libgbinder-alarm": {
       "version": "1.1.53-1"
