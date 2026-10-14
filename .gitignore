@@ -52,3 +52,14 @@ STRATEGY.md
 # updpkgsums/makepkg downloaded sources at package-dir root
 overlay/apps/*/*.tar.gz
 overlay/apps/waydroid/waydroid/
+
+# VM host-side runtime assets (built/curated per-host, not source):
+# fixed virglrenderer build, noVNC checkout, serial/monitor sockets,
+# VNC captures, libs narrow the reproducible recipe to the script itself.
+test/build/x86_64/virgl-fixed/
+test/build/x86_64/noVNC/
+test/build/x86_64/novnc-deps/
+test/build/x86_64/vm-*.sock
+test/build/x86_64/vm-gui-serial.log
+test/build/x86_64/vm-serial.log
+test/build/x86_64/vnc-view*
