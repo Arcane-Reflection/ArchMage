@@ -322,14 +322,18 @@ container_main() {
     archmage_info "pinned kupferbootstrap: $kbs_ver"
 
     # 1) Toolchain (ALARM official repos only, TUNA mirror for speed).
-    # TUNA first (speed); official ALARM second — TUNA throttles under load
-    # ("Operation too slow", run 39925756384 guile/python/git); pacman falls
-    # through servers on retrieval failure. Dual-server is the standard for
-    # every mirrorlist we write (see also mkrootfs-x86_64.sh).
+    # Dual-server EVERYWHERE the TUNA ALARM server appears: the menci base
+    # image hardcodes Server lines in /etc/pacman.conf (Include mirrorlist
+    # is NOT used for them), so append the official ALARM server after each
+    # TUNA line — pacman falls through servers on retrieval failure
+    # (TUNA throttling killed the base chroot pacstrap, runs 39925756384 +
+    # 39931678838: guile/python/git/perl .sig fetches <1 bytes/sec).
     printf '%s\n' \
         'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo' \
         'Server = http://mirror.archlinuxarm.org/$arch/$repo' \
         > /etc/pacman.d/mirrorlist
+    sed -i '\|mirrors\.tuna\.tsinghua\.edu\.cn/archlinuxarm|a Server = http://mirror.archlinuxarm.org/$arch/$repo' \
+        /etc/pacman.conf
     # pacman 7's landlock/seccomp sandbox is unavailable inside this
     # ephemeral build container (observed: "Landlock is not supported by the
     # kernel" on containerized ALARM). The container itself is a throwaway
