@@ -234,7 +234,10 @@ container_main() {
     archmage::require_cmd bsdtar pacman pacman-key mkfs.ext4 truncate du
 
     # Speed the container's own package installs through TUNA as well.
-    printf 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo\n' \
+    # Dual-server: official ALARM second (TUNA throttles under load).
+    printf '%s\n' \
+        'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo' \
+        'Server = http://mirror.archlinuxarm.org/$arch/$repo' \
         > /etc/pacman.d/mirrorlist
     # pacman 7's landlock/seccomp sandbox is unavailable under qemu-user
     # emulation (live failure: "Landlock is not supported by the kernel" ->

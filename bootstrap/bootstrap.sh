@@ -322,7 +322,13 @@ container_main() {
     archmage_info "pinned kupferbootstrap: $kbs_ver"
 
     # 1) Toolchain (ALARM official repos only, TUNA mirror for speed).
-    printf 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo\n' \
+    # TUNA first (speed); official ALARM second — TUNA throttles under load
+    # ("Operation too slow", run 39925756384 guile/python/git); pacman falls
+    # through servers on retrieval failure. Dual-server is the standard for
+    # every mirrorlist we write (see also mkrootfs-x86_64.sh).
+    printf '%s\n' \
+        'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo' \
+        'Server = http://mirror.archlinuxarm.org/$arch/$repo' \
         > /etc/pacman.d/mirrorlist
     # pacman 7's landlock/seccomp sandbox is unavailable inside this
     # ephemeral build container (observed: "Landlock is not supported by the

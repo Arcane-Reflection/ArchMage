@@ -631,8 +631,9 @@ container_main() {
     # container is a throwaway root, so its OWN /etc/pacman.conf disables the
     # sandbox — same scope rule as 01-02: throwaway roots only, never
     # shipped configs.
-    printf 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch\n' \
-        'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch\n' \
+    printf '%s\n' \
+        'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
+        'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
         > /etc/pacman.d/mirrorlist
     if ! grep -q '^DisableSandbox' /etc/pacman.conf; then
         sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
