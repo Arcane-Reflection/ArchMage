@@ -26,9 +26,8 @@ name: upstream
 
 on:
   schedule:
-    # Daily at 03:43 UTC.
-    - cron: "43 03 * * *"
-    # Weekly (Monday 04:09 UTC) — adds the drop/rename check.
+    # Weekly (Monday 04:09 UTC) — includes the drop/rename check; the daily
+    # upstream sweep was removed (user request 2026-10-23).
     - cron: "9 04 * * 1"
   workflow_dispatch:
   push:

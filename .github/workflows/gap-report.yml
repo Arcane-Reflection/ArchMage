@@ -19,8 +19,8 @@ name: gap-report
 
 on:
   schedule:
-    # Daily at 02:17 UTC (staggered against qemu-smoke's schedule).
-    - cron: "17 02 * * *"
+    # Weekly (Monday 02:17 UTC) — cadence reduced from daily (user request 2026-10-23); workflow_dispatch stays for manual runs.
+    - cron: "17 02 * * 1"
   workflow_dispatch:
 
 permissions:

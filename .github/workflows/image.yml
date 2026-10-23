@@ -41,8 +41,8 @@ name: image
 
 on:
   schedule:
-    # Daily at 03:17 UTC (staggered against qemu-smoke 02:41 and gap-report).
-    - cron: "17 03 * * *"
+    # Weekly (Monday 03:17 UTC) — nightly images become weekly (user request 2026-10-23).
+    - cron: "17 03 * * 1"
   workflow_dispatch:
   push:
     branches: [main]
