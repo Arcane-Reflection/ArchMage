@@ -172,21 +172,22 @@ jobs:
                   *" $g "*) ;;
                   *) continue ;;
                 esac
-                # PKGBUILD arch= filter: the package must declare support for
-                # matrix.arch (or be arch-independent). Phone-scoped packages
-                # declare arch=(aarch64) and never build on the desktop leg.
-                supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
-                case " $supported " in
-                  *" ${{ matrix.arch }} "*|*" any "*) ;;
-                  *)
-                    echo "::notice::$d skipped — arch=($supported) does not cover ${{ matrix.arch }}"
-                    continue
-                    ;;
-                esac
                 if [ -f "$d/PKGBUILD" ]; then
                   if [ -f "$d/.ci-defer" ]; then
                     echo "::notice::$d carries .ci-defer — excluded from the staging build ($(head -n1 "$d/.ci-defer"))"
                   else
+                    # PKGBUILD arch= filter (EXISTS check above guards the
+                    # read — group dirs may carry non-package files like
+                    # README.md, and reading $d/PKGBUILD on those dies
+                    # under set -e; run 42731233186).
+                    supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
+                    case " $supported " in
+                      *" ${{ matrix.arch }} "*|*" any "*) ;;
+                      *)
+                        echo "::notice::$d skipped — arch=($supported) does not cover ${{ matrix.arch }}"
+                        continue
+                        ;;
+                    esac
                     pkgs+=("$d")
                   fi
                 fi
@@ -211,12 +212,14 @@ jobs:
                     *" $g "*) ;;
                     *) continue ;;
                   esac
-                  supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
-                  case " $supported " in
-                    *" ${{ matrix.arch }} "*|*" any "*) ;;
-                    *) continue ;;
-                  esac
                   if [ -f "$d/PKGBUILD" ] && [ ! -f "$d/.ci-defer" ]; then
+                    # arch= filter (safe: PKGBUILD existence checked above;
+                    # see the incremental-loop note on run 42731233186).
+                    supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
+                    case " $supported " in
+                      *" ${{ matrix.arch }} "*|*" any "*) ;;
+                      *) continue ;;
+                    esac
                     pkgs+=("$d")
                   fi
                   ;;
@@ -278,6 +281,19 @@ jobs:
           mkdir -p "$LOCALREPO"
           grep -q '^\[archmage-local\]' /etc/pacman.conf || printf '\n[archmage-local]\nSigLevel = Never\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
           repo-add "$LOCALREPO/archmage-local.db.tar.zst" >/dev/null
+          # Seed the local repo with CACHED packages from earlier runs before
+          # the leaf-first loop: a differential build may contain an umbrella
+          # whose leaf siblings were built in a PREVIOUS run and live only in
+          # the carried-forward PKGDEST + the published staging artifact —
+          # without seeding, makepkg -s cannot resolve them and the umbrella
+          # fails in every pass (run 42731233186: cn umbrella built alone).
+          mapfile -t cached < <(find "$PKGDEST" -maxdepth 1 -name '*.pkg.tar.zst' | sort)
+          if [ "${#cached[@]}" -gt 0 ]; then
+            repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${cached[@]}" >/dev/null
+            pacman -Sy --noconfirm >/dev/null
+            echo "--- seeded local repo with ${#cached[@]} cached package(s) ---"
+            pacman -Sl archmage-local | tail -3 || true
+          fi
           pacman -Sy --noconfirm >/dev/null
           echo "--- local repo registered ---"
           tail -4 /etc/pacman.conf
