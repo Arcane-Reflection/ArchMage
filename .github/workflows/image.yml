@@ -373,8 +373,60 @@ jobs:
           path: test/results/latest/
           if-no-files-found: warn
 
+  desktop-x86_64-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ARCHMAGE_GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Build the desktop x86_64 image (Omarchy-lineage stack)
+        # desktop-x86_64.sh self-wraps into a privileged archlinux:base
+        # container, acquires staging-repo-x86_64 from the latest successful
+        # packages.yml run (SigLevel Required + lsign discipline) and
+        # asserts 17 structural gates (Hyprland stack, CN defaults, TUI
+        # tooling, GRUB, btrfs rollback layout). Boot verification is a
+        # follow-up — this first cut ships structure-gated only.
+        run: |
+          set -euo pipefail
+          bash test/desktop-x86_64.sh --from-ci
+
+      - name: Compress and package release assets
+        run: |
+          set -euo pipefail
+          mkdir -p desktop-image-out
+          img=test/build/desktop/rootfs.img
+          build_date="$(date -u +%Y%m%d)"
+          xz -T0 -1 -c "$img" > desktop-image-out/archmage-desktop-${build_date}.img.xz
+          ( cd desktop-image-out && sha256sum archmage-desktop-${build_date}.img.xz \
+              > archmage-desktop-${build_date}.img.xz.sha256 )
+          {
+            echo "ArchMage desktop x86_64 image (Omarchy-lineage stack)"
+            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "NOTE: structure-gated build; boot verification follow-up;"
+            echo "signature parity follow-up (sha256 only for now)."
+          } > desktop-image-out/FINGERPRINT.txt
+          cat desktop-image-out/FINGERPRINT.txt
+          ls -la desktop-image-out/
+
+      - name: Upload desktop-image artifact
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: desktop-image
+          path: desktop-image-out/
+          if-no-files-found: error
+
   publish-nightly:
-    needs: [op6-image, qemu-x86_64-image]
+    needs: [op6-image, qemu-x86_64-image, desktop-x86_64-image]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -389,6 +441,13 @@ jobs:
         with:
           name: op6-image
           path: release-assets/op6/
+
+      - name: Download desktop-image artifact
+        # v7.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: desktop-image
+          path: release-assets/desktop/
 
       - name: Download qemu-x86_64-image artifact
         # v7.0.0
@@ -420,7 +479,7 @@ jobs:
           mkdir -p "$prepared"
           join_notes="$prepared/REJOIN-SPLIT-ASSETS.txt"
           : > "$join_notes"
-          for f in release-assets/op6/* release-assets/qemu-x86_64/*; do
+          for f in release-assets/op6/* release-assets/qemu-x86_64/* release-assets/desktop/*; do
             [ -f "$f" ] || continue
             if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
               cp "$f" "$prepared/"

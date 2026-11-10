@@ -63,3 +63,6 @@ test/build/x86_64/vm-*.sock
 test/build/x86_64/vm-gui-serial.log
 test/build/x86_64/vm-serial.log
 test/build/x86_64/vnc-view*
+
+# desktop image build artifacts
+test/build/desktop/
