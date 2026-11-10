@@ -36,9 +36,34 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    # Dual-arch since 2026-11-10 (desktop layer): aarch64 (phone, full
+    # overlay) on the arm runner + menci ALARM image; x86_64 (desktop,
+    # desktop/cn/core groups) on ubuntu-latest + official archlinux image.
+    # Consumers: aarch64 artifact stays `staging-repo` (01-01 contract with
+    # mkrootfs/image); the desktop artifact is `staging-repo-x86_64`.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            container_image: menci/archlinuxarm:base-devel
+            keyring_pkg: archlinuxarm-keyring
+            # Phone overlay: full set.
+            groups: "cn core device phosh apps qemu"
+            artifact: staging-repo
+          - arch: x86_64
+            runner: ubuntu-latest
+            container_image: archlinux:base-devel
+            keyring_pkg: archlinux-keyring
+            # Desktop subset: no phone device/phosh/apps packages. cn-mirror
+            # is ALARM-specific (archlinuxarm tree) and lands on the desktop
+            # side via a future archmage-desktop-mirror package instead.
+            groups: "desktop cn core"
+            artifact: staging-repo-x86_64
+    runs-on: ${{ matrix.runner }}
     container:
-      image: menci/archlinuxarm:base-devel
+      image: ${{ matrix.container_image }}
     steps:
       - name: Prepare container toolchain
         run: |
@@ -51,7 +76,7 @@ jobs:
           # Appended LAST so it wins when makepkg sources the conf.
           printf "\n# ArchMage: zstd packages on aarch64 (pipeline expectation)\nPKGEXT='.pkg.tar.zst'\n" >> /etc/makepkg.conf
           pacman-key --init
-          pacman-key --populate archlinuxarm
+          pacman-key --populate ${{ matrix.keyring_pkg }}
           # base-devel image already has most of this; --needed keeps it idempotent.
           pacman -Sy --noconfirm --needed base-devel pacman-contrib git sudo gnupg
 
@@ -122,6 +147,15 @@ jobs:
             case "$f" in
               overlay/*/*)
                 d="overlay/$(printf '%s' "$f" | cut -d/ -f2,3)"
+                # Per-arch group filter (matrix.groups): aarch64 builds the
+                # full phone overlay, x86_64 builds the desktop subset
+                # (desktop/cn/core) — phone device/phosh/apps packages are
+                # never built on the desktop leg.
+                g="$(printf '%s' "$d" | cut -d/ -f2)"
+                case " ${{ matrix.groups }} " in
+                  *" $g "*) ;;
+                  *) continue ;;
+                esac
                 if [ -f "$d/PKGBUILD" ]; then
                   if [ -f "$d/.ci-defer" ]; then
                     echo "::notice::$d carries .ci-defer — excluded from the staging build ($(head -n1 "$d/.ci-defer"))"
@@ -145,6 +179,11 @@ jobs:
               case "$f" in
                 overlay/*/*)
                   d="overlay/$(printf '%s' "$f" | cut -d/ -f2,3)"
+                  g="$(printf '%s' "$d" | cut -d/ -f2)"
+                  case " ${{ matrix.groups }} " in
+                    *" $g "*) ;;
+                    *) continue ;;
+                  esac
                   if [ -f "$d/PKGBUILD" ] && [ ! -f "$d/.ci-defer" ]; then
                     pkgs+=("$d")
                   fi
@@ -185,10 +224,10 @@ jobs:
           path: |
             .cache/makepkg
             /var/cache/pacman/pkg
-          key: makepkg-${{ steps.detect.outputs.slug }}-${{ steps.detect.outputs.pkghash }}
+          key: makepkg-${{ matrix.arch }}-${{ steps.detect.outputs.slug }}-${{ steps.detect.outputs.pkghash }}
           restore-keys: |
-            makepkg-${{ steps.detect.outputs.slug }}-
-            makepkg-
+            makepkg-${{ matrix.arch }}-${{ steps.detect.outputs.slug }}-
+            makepkg-${{ matrix.arch }}-
 
       - name: Build packages
         env:
@@ -389,7 +428,9 @@ jobs:
         # v7.0.1
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: staging-repo
+          # aarch64: `staging-repo` (01-01 contract with mkrootfs/image);
+          # x86_64: `staging-repo-x86_64` (desktop consumers).
+          name: ${{ matrix.artifact }}
           path: staging-repo/
           if-no-files-found: error
 
@@ -398,6 +439,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: build-logs
+          name: build-logs-${{ matrix.arch }}
           path: build-logs/
           if-no-files-found: ignore

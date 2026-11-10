@@ -1,0 +1,44 @@
+# Maintainer: ArchMage contributors
+#
+# ArchMage desktop layer umbrella (DESKTOP-01, x86_64).
+#
+# Overlays-only (STRATEGY §4): configuration and meta wiring only; depends
+# on upstream packages and sibling archmage-* packages, forks nothing.
+#
+# Phone-only packages are deliberately absent: cn-apn (modem APN),
+# archmage-phosh-safety (phosh shell), archmage-fcitx5-osk (phosh OSK),
+# waydroid stack (apps layer), archmage-btrfs-rollback (rollback layout
+# follows the phone image's partition scheme). cn-mirror is ALARM-specific
+# (archlinuxarm tree) — the desktop side gets its own x86_64 Arch mirror
+# package in a follow-up (archmage-desktop-mirror).
+
+pkgname=archmage-desktop
+pkgver=1
+pkgrel=1
+pkgdesc='ArchMage desktop layer umbrella: CN defaults + management baseline (x86_64)'
+arch=(x86_64)
+url='https://github.com/Arcane-Reflection/ArchMage'
+license=(Apache)
+depends=(
+  # CN defaults (arch-agnostic configuration packages)
+  'archmage-cn-locale'
+  'archmage-cn-fonts-meta'
+  'archmage-cn-net'
+  # NOTE: cn-mirror intentionally excluded — ALARM-specific mirrorlist.
+  # TUI management layer rides here once the v0.2 milestone lands
+  # (archmage dispatcher + gum/fzf; Phase 5 of ROADMAP.md).
+)
+
+package() {
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'DESCEOF'
+ArchMage desktop layer umbrella.
+
+Installs the CN-default configuration set that applies to x86_64 desktop
+systems (locale, CJK fonts, network defaults). Phone-only layers (modem
+APN, phosh shell safety, OSK, waydroid, btrfs rollback layout) are
+deliberately not pulled in.
+
+Management happens through the archmage TUI layer (see ROADMAP.md v0.2).
+DESCEOF
+}
