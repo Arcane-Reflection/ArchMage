@@ -313,13 +313,15 @@ else
         "pacman -Syu --noconfirm failed — see $(basename "$PACMAN_LOG") and the serial/journal artifacts"
 fi
 
-# 3. CN defaults installed (gate; CN-02 loop proof).
-if vm_ssh "pacman -Q archmage-cn noto-fonts-cjk" >/dev/null 2>&1 &&
+# 3. CN defaults installed (gate; CN-02 loop proof). The cn umbrella is
+#    arch=(aarch64) phone-scoped now — the x86_64 dev VM carries the cn
+#    children explicitly (desktop split, 2026-11-10).
+if vm_ssh "pacman -Q archmage-cn-locale archmage-cn-fonts-meta archmage-cn-net noto-fonts-cjk" >/dev/null 2>&1 &&
     vm_ssh "grep -q 'zh_CN.UTF-8' /etc/locale.conf" >/dev/null 2>&1; then
     result_assert cn_defaults_installed pass \
-        "pacman -Q archmage-cn noto-fonts-cjk ok; /etc/locale.conf has zh_CN.UTF-8"
+        "pacman -Q cn-locale/fonts-meta/net + noto-fonts-cjk ok; /etc/locale.conf has zh_CN.UTF-8"
 else
-    CN_PKGS=$(vm_ssh "pacman -Q archmage-cn noto-fonts-cjk" 2>&1 || true)
+    CN_PKGS=$(vm_ssh "pacman -Q archmage-cn-locale archmage-cn-fonts-meta archmage-cn-net noto-fonts-cjk" 2>&1 || true)
     CN_LOCALE=$(vm_ssh "grep -c 'zh_CN.UTF-8' /etc/locale.conf" 2>/dev/null || true)
     result_assert cn_defaults_installed fail \
         "pkgs: ${CN_PKGS//$'\n'/; }; locale.conf zh_CN.UTF-8 count: '${CN_LOCALE:-<none>}'"
