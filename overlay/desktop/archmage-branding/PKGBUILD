@@ -23,6 +23,31 @@ depends=(
   # deploy (os-release override source, SDDM theme dir, fastfetch config).
   'omarchy-settings'
 )
+# Local assets must ride the source array — makepkg runs package() from
+# $srcdir, and only source=() entries land there (the missing array was the
+# D-0 packages-run failure: install could not stat the logo assets).
+source=(
+  '99-archmage-branding.hook'
+  'apply-branding.sh'
+  'archmage-logo.png'
+  'archmage-logo.svg'
+  'archmage.desktop'
+  'about.txt'
+  'fastfetch.jsonc'
+  'logo.txt'
+  'os-release'
+)
+sha256sums=(
+  '867107e12edfbf8eef4cfc9acfd7f39f405c4e90bcd1ddbabbc5bba43cd76adb'
+  '1006d4d30c10fb60dd87d6cee1d3ac67c78c36f87b1939b5e321059b0905548c'
+  'c6c0f9a784d963dca4ac006639f2e257bfaa8da5db62897f42f2e5335d49f719'
+  '1b5c18cda5eefec07736f9112017c8d072cb816eef2ad9c3d6402a56f111bfd1'
+  '018ab8372f0db7b77cb35fb33800c40159b9d2a84dee310b0f77a2c019a1fc4f'
+  '81e72a3c4d77c47b21d8ed59c56cc0f92ac75bde14bb9fa861e930dd4ab25542'
+  '1c24c9f5d2b4b4901fd77f9ed7da74e38b15e5918fabe02248e4c74722a2b292'
+  'c8ba6f5aacf433c2c394556572f5f08e014b05b466668b2e2552f8e4a593780f'
+  'da2038649a39400e5b7d210286a3fa9b8db443c25ae7e3c459d31564e0938771'
+)
 
 package() {
     local b="$pkgdir/usr/share/archmage/branding"
