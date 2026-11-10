@@ -7,6 +7,9 @@
 - 工件:`staging-repo-x86_64`(aarch64 仍是 `staging-repo`,01-01 契约不变)
 - cn-mirror 是 ALARM 专属(archlinuxarm 树);桌面镜像包(archmage-desktop-mirror,
   Arch 主线 TUNA/USTC)另行立项(D-2')
+- CI:x86_64 构建容器已接 [omarchy] stable 通道 + keyring(packages.yml Build
+  packages 步调 test/omarchy-keyring-bootstrap.sh),desktop 组包可依赖 omarchy
+  基座包(makepkg --syncdeps 经 SYNC 库解析)
 
 ## 内容
 

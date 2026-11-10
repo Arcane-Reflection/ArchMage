@@ -20,10 +20,14 @@ btrfs `@`/`@var`/`@snapshots`, snapper preconfigured):
 - **`--legacy` — pre-D-0 builder**: bare Arch + hand-rolled Hyprland, GRUB +
   greetd. Kept verbatim for builder rollback/comparison. 18 gates.
 
-The omarchy keyring chicken-and-egg is broken deterministically: fetch the
-repo db over HTTPS, read `omarchy-keyring`'s FILENAME/SHA256SUM from the db,
-verify the package against the db entry, extract into
-`/usr/share/pacman/keyrings/`, then `pacman-key --populate omarchy`.
+The omarchy keyring chicken-and-egg is broken deterministically by the shared
+script `test/omarchy-keyring-bootstrap.sh` (fetch the repo db over HTTPS, read
+`omarchy-keyring`'s FILENAME/SHA256SUM from the db, verify the package against
+the db entry, extract into `/usr/share/pacman/keyrings/`, then
+`pacman-key --populate omarchy`). The packages.yml x86_64 build container runs
+the same script so `makepkg --syncdeps` can resolve omarchy-base dependencies;
+the root check sits at the end so the fetch/verify chain is testable
+unprivileged.
 
 Local rebuild (Linux host or docker): `ARCHMAGE_DESKTOP_MIRROR_ORDER=cn
 bash test/desktop-x86_64.sh --from-ci` (~20–40 min/round).
