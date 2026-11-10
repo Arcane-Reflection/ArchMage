@@ -33,6 +33,7 @@ OUT_DIR="$REPO_ROOT/test/build/desktop"
 OUT_IMG="$OUT_DIR/rootfs.img"
 REPO_DIR=""
 FROM_CI=no
+run_id=""
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf '==> %s\n' "$*"; }
@@ -105,8 +106,9 @@ if [ "$FROM_CI" = yes ]; then
 elif [ -n "$REPO_DIR" ]; then
     rm -rf "$STAGING"; cp -a "$REPO_DIR/." "$STAGING/"
 fi
+echo "DEBUG: FROM_CI=$FROM_CI REPO_DIR=$REPO_DIR run_id=${run_id:-UNSET} STAGING=$STAGING"
 if [ ! -f "$STAGING/cn.db.tar.zst" ]; then
-    echo "::error::staging repo lacks cn.db.tar.zst (run_id=$run_id) — downloaded content:"
+    echo "::error::staging repo lacks cn.db.tar.zst (run_id=${run_id:-UNSET}) — downloaded content:"
     ls -la "$STAGING" >&2 || true
     die "wrong artifact downloaded?"
 fi
