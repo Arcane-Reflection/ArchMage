@@ -16,7 +16,10 @@
 
 pkgname=archmage-desktop
 pkgver=3
-pkgrel=1
+# pkgrel 2: rebuild against the fixed archmage-branding (source= array) so the
+# staging repo carries v3 — the PKGDEST cache only ever held v2 (v3 never
+# survived a packages run before the branding fix).
+pkgrel=2
 pkgdesc='ArchMage desktop layer umbrella: CN defaults + fcitx5 + TUI tooling on the Omarchy base (x86_64)'
 arch=(x86_64)
 url='https://github.com/Arcane-Reflection/ArchMage'
