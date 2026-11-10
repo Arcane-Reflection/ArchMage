@@ -1,0 +1,12 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = omarchy
+Target = omarchy-settings
+Target = omarchy-themes-intros
+
+[Action]
+Description = Applying the ArchMage brand layer (L1+L2 rebrand)...
+When = PostTransaction
+Exec = /usr/share/archmage/branding/apply-branding.sh

@@ -1,33 +1,29 @@
 # Maintainer: ArchMage contributors
 #
-# ArchMage desktop layer umbrella (DESKTOP-01, x86_64).
+# ArchMage desktop layer umbrella (v3, D-0: Omarchy base), x86_64.
 #
-# Desktop stack follows the Omarchy lineage (user decision 2026-11-10):
-# Hyprland + uwsm session, Ghostty terminal, waybar, fuzzel launcher,
-# gum/fzf TUI tooling — with the ArchMage CN layer and anti-bloat
-# discipline. Phone-only packages are deliberately absent: cn-apn (modem),
-# archmage-phosh-safety (phosh), archmage-fcitx5-osk (phosh OSK), waydroid
-# stack, archmage-btrfs-rollback (phone partition layout). cn-mirror is
-# ALARM-specific; the desktop mirror package (archmage-desktop-mirror,
-# x86_64 Arch TUNA/USTC) is a follow-up.
+# The Omarchy 4.5.x base provides the desktop stack itself — Hyprland + uwsm
+# + quickshell shell, SDDM, xdg portals, pipewire stack, gum, limine +
+# snapper + snap-pac, keyring/settings/themes — via the pinned `omarchy` meta
+# package (see test/desktop-x86_64.sh, D-0 plan in
+# docs/internal/HANDOFF-OMARCHY-BASE.md). This umbrella therefore carries
+# ONLY what the base misses: the CN layer, the CN input method, the
+# verification terminal, and the network baseline. Phone-only packages stay
+# deliberately absent: cn-apn (modem), archmage-phosh-safety, waydroid stack,
+# archmage-btrfs-rollback (phone partition layout). cn-mirror is
+# ALARM-specific; the desktop mirror package (archmage-desktop-mirror) is
+# D-2' scope.
 
 pkgname=archmage-desktop
-pkgver=2
+pkgver=3
 pkgrel=1
-pkgdesc='ArchMage desktop layer umbrella: Hyprland stack + CN defaults + TUI tooling (x86_64)'
+pkgdesc='ArchMage desktop layer umbrella: CN defaults + fcitx5 + TUI tooling on the Omarchy base (x86_64)'
 arch=(x86_64)
 url='https://github.com/Arcane-Reflection/ArchMage'
 license=(Apache)
 depends=(
-  # Omarchy-lineage desktop stack (all in Arch extra; no forking)
-  'hyprland'
-  'uwsm'
-  'ghostty'
-  'waybar'
-  'fuzzel'
-  'xdg-desktop-portal-hyprland'
-  'polkit-gnome'
-  'brightnessctl'
+  # ArchMage brand layer (L1+L2 rebrand engine + archmage session entry)
+  'archmage-branding'
   # CN defaults (archmage overlay, any-arch configuration packages)
   'archmage-cn-locale'
   'archmage-cn-fonts-meta'
@@ -36,31 +32,36 @@ depends=(
   'fcitx5'
   'fcitx5-chinese-addons'
   'fcitx5-gtk'
+  'fcitx5-qt'
   'noto-fonts-cjk'
-  # TUI tooling layer (v0.2 management face)
-  'gum'
-  'fzf'
-  # Network + audio baseline
+  # Verification terminal (Omarchy 4.5 ISO defaults to foot; Ghostty stays
+  # our CN-input verification target per the D-0 handoff)
+  'ghostty'
+  # Browser (Omarchy base lists chromium in its ISO set; explicit here so the
+  # umbrella is self-contained if installed without the full ISO set)
+  'chromium'
+  # Network baseline
   'networkmanager'
   'ufw'
-  'pipewire'
-  'wireplumber'
-  'pipewire-pulse'
-  # Browser (Omarchy default lineage)
-  'chromium'
+  # TUI tooling layer (gum arrives via the omarchy meta package; fzf explicit)
+  'fzf'
 )
 
 package() {
     install -d "$pkgdir/usr/share/doc/$pkgname"
     cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'DESCEOF'
-ArchMage desktop layer umbrella (Omarchy-lineage stack).
+ArchMage desktop layer umbrella v3 (Omarchy 4.5.x base, D-0).
 
-Hyprland (uwsm session) + Ghostty + waybar + fuzzel + fcitx5 CN input +
-gum/fzf TUI tooling, on top of the ArchMage CN default configuration set
-(locale, CJK fonts, network defaults).
+The base (omarchy meta package) owns: Hyprland + uwsm + quickshell shell,
+SDDM, xdg portals, pipewire, gum, limine + limine-snapper-sync + snapper,
+keyring/settings/themes-intros. This umbrella adds the ArchMage brand layer
+(archmage-branding), the CN default set (locale, CJK fonts, network
+defaults), fcitx5 Chinese input, Ghostty, chromium, NetworkManager + ufw.
 
 Management happens through the archmage TUI layer (see ROADMAP.md v0.2).
-Phone-only layers (modem APN, phosh shell safety, OSK, waydroid, btrfs
-rollback layout) are deliberately not pulled in.
+Phone-only layers (modem APN, phosh shell safety, OSK, waydroid, phone
+btrfs rollback layout) are deliberately not pulled in.
+
+Omarchy is MIT (c) Basecamp / omacom-io; attribution in the image docs.
 DESCEOF
 }

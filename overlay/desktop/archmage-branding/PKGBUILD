@@ -1,0 +1,64 @@
+# Maintainer: ArchMage contributors
+#
+# ArchMage brand layer (L1 cosmetics + L2 command entries) over the Omarchy
+# base. The Omarchy 4.5.x stack (Hyprland + quickshell shell, SDDM, limine +
+# snapper, omarchy-* tooling) stays upstream-managed — L3 paths (/usr/share/
+# omarchy, [omarchy] repo, ~/.config/omarchy) are deliberately untouched so
+# pacman updates keep working. Everything the user can SEE or TYPE gets the
+# ArchMage identity through apply-branding.sh, re-applied by the alpm hook on
+# every transaction touching omarchy packages (omarchy-settings' .INSTALL
+# re-copies its own os-release override on EVERY upgrade — only a
+# PostTransaction hook reliably wins that race). Survey + tiering:
+# docs/internal/omarchy-rebrand-inventory.md.
+
+pkgname=archmage-branding
+pkgver=1
+pkgrel=1
+pkgdesc='ArchMage brand layer: L1 cosmetics + L2 entry names over the Omarchy base'
+arch=(any)
+url='https://github.com/Arcane-Reflection/ArchMage'
+license=(Apache)
+depends=(
+  # Ordering contract: our hook rewrites what omarchy-settings' scriptlets
+  # deploy (os-release override source, SDDM theme dir, fastfetch config).
+  'omarchy-settings'
+)
+
+package() {
+    local b="$pkgdir/usr/share/archmage/branding"
+    install -d "$b"
+
+    # L1 assets (sources of truth; apply-branding.sh copies them into place)
+    install -m644 archmage-logo.svg "$b/archmage-logo.svg"
+    install -m644 archmage-logo.png "$b/archmage-logo.png"
+    install -m644 logo.txt          "$b/logo.txt"
+    install -m644 about.txt         "$b/about.txt"
+    install -m644 os-release        "$b/os-release"
+    install -m644 fastfetch.jsonc   "$b/fastfetch.jsonc"
+
+    # L2 session entry (SDDM greeter: Name=ArchMage, uwsm-wrapped Hyprland)
+    install -Dm644 archmage.desktop \
+        "$pkgdir/usr/share/wayland-sessions/archmage.desktop"
+
+    # The rebrand engine + the hook that keeps it applied across upgrades
+    install -m755 apply-branding.sh "$b/apply-branding.sh"
+    install -Dm644 99-archmage-branding.hook \
+        "$pkgdir/usr/share/libalpm/hooks/99-archmage-branding.hook"
+
+    install -d "$pkgdir/usr/share/doc/$pkgname"
+    cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'DESCEOF'
+ArchMage brand layer over the Omarchy 4.5.x base.
+
+L1 (cosmetics): os-release, SDDM theme copy -> archmage, plymouth logo,
+/usr/share/omarchy logo.svg/logo.txt, skel about.txt, fastfetch config,
+limine interface_branding, zh-CN menu i18n.
+L2 (command layer): /usr/bin/archmage* symlink farm -> omarchy entries,
+archmage.desktop wayland session, primary AI-skill wording.
+
+L3 (internal, NOT rebranded): /usr/share/omarchy paths, ~/.config/omarchy,
+the [omarchy] pacman repo — upstream updates must keep flowing.
+
+Omarchy is MIT (c) Basecamp / omacom-io; attribution retained in the image
+docs and FINGERPRINT.txt.
+DESCEOF
+}

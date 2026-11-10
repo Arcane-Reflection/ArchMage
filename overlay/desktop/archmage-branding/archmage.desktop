@@ -1,0 +1,7 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ArchMage
+Comment=ArchMage 桌面会话(Hyprland,经 uwsm 包装)
+Exec=uwsm start hyprland.desktop
+DesktopNames=ArchMage

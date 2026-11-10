@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="188" viewBox="0 0 800 188">
+  <polygon points="64,50 108,94 64,138 20,94" fill="#7aa2f7"/>
+  <polygon points="64,76 82,94 64,112 46,94" fill="#1a1b26"/>
+  <text x="130" y="126" font-family="Helvetica" font-size="96" font-weight="bold" fill="#c0caf5">Arch</text>
+  <text x="320" y="126" font-family="Helvetica" font-size="96" font-weight="bold" fill="#7aa2f7">Mage</text>
+</svg>

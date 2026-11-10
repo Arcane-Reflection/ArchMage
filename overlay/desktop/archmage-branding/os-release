@@ -1,0 +1,12 @@
+NAME="ArchMage"
+PRETTY_NAME="ArchMage"
+ID=archmage
+ID_LIKE=arch
+BUILD_ID="@BASE_VERSION@"
+VERSION_ID="@BASE_VERSION@"
+ANSI_COLOR="38;2;122;162;247"
+HOME_URL="https://github.com/Arcane-Reflection/ArchMage"
+DOCUMENTATION_URL="https://github.com/Arcane-Reflection/ArchMage"
+SUPPORT_URL="https://github.com/Arcane-Reflection/ArchMage/issues"
+BUG_REPORT_URL="https://github.com/Arcane-Reflection/ArchMage/issues"
+LOGO=archmage

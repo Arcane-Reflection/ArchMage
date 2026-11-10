@@ -387,13 +387,16 @@ jobs:
         # v7.0.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Build the desktop x86_64 image (Omarchy-lineage stack)
-        # desktop-x86_64.sh self-wraps into a privileged archlinux:base
-        # container, acquires staging-repo-x86_64 from the latest successful
-        # packages.yml run (SigLevel Required + lsign discipline) and
-        # asserts 17 structural gates (Hyprland stack, CN defaults, TUI
-        # tooling, GRUB, btrfs rollback layout). Boot verification is a
-        # follow-up — this first cut ships structure-gated only.
+      - name: Build the desktop x86_64 image (Omarchy 4.5.x base)
+        # desktop-x86_64.sh (D-0 Omarchy base mode) self-wraps into a
+        # privileged archlinux:base container, acquires staging-repo-x86_64
+        # from the latest successful packages.yml run (SigLevel Required +
+        # lsign discipline), installs the version-pinned omarchy meta stack
+        # (test/omarchy-version.txt) + the CN/brand overlay, and asserts 33
+        # structural gates (SDDM/quickshell/Hyprland, linux-omarchy, pinned
+        # meta, ArchMage os-release + entry symlinks + SDDM theme, limine
+        # boot files + enrolled entries, CN defaults, btrfs/snapper layout).
+        # Boot verification is D-0.3 — structure-gated until then.
         run: |
           set -euo pipefail
           bash test/desktop-x86_64.sh --from-ci
@@ -408,10 +411,15 @@ jobs:
           ( cd desktop-image-out && sha256sum archmage-desktop-${build_date}.img.xz \
               > archmage-desktop-${build_date}.img.xz.sha256 )
           {
-            echo "ArchMage desktop x86_64 image (Omarchy-lineage stack)"
+            echo "ArchMage desktop x86_64 image (Omarchy 4.5.x base)"
             echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "NOTE: structure-gated build; boot verification follow-up;"
+            echo "BASE: Omarchy 4.5.x (MIT, (c) Basecamp / omacom-io,"
+            echo "      https://github.com/basecamp/omarchy) — the upstream"
+            echo "      desktop stack ships unmodified from the pinned stable"
+            echo "      repo; the ArchMage brand layer (archmage-branding)"
+            echo "      rebrands user-visible surfaces only (L1+L2)."
+            echo "NOTE: structure-gated build; boot verification is D-0.3;"
             echo "signature parity follow-up (sha256 only for now)."
           } > desktop-image-out/FINGERPRINT.txt
           cat desktop-image-out/FINGERPRINT.txt
