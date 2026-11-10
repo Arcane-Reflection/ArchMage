@@ -18,11 +18,13 @@ name: perf
 # bot commit lands the fresh JSON verbatim every run instead of diffing.
 #
 # KVM premise (checked explicitly in-job): this workflow relies on GitHub
-# hosted ubuntu runners exposing /dev/kvm (the same premise as
-# android-emulator-runner CI usage). If the premise does not hold on first
-# live run, the documented fallback (04-02 plan verification (d)) is a
-# self-hosted runner or a TCG run with ARCHMAGE_QEMU_ALLOW_TCG=1 + a raised
-# timeout — decide there, do not silently flip here.
+# hosted ubuntu runners exposing /dev/kvm. THE PREMISE DOES NOT HOLD — three
+# live runs (39941333776, 41440280978, 42617528473) failed the loud premise
+# check: standard hosted runners expose no writable /dev/kvm. Decision
+# 2026-10-23/11-10 (user): the workflow_run auto-trigger is REMOVED — perf
+# runs on workflow_dispatch only, until a self-hosted runner (KVM-capable)
+# exists; at that point restore `workflow_run: workflows: ["image"]` and the
+# job-level event guard. The loud /dev/kvm check below stays untouched.
 #
 # SSH key handling: the image.yml artifact embeds THAT run's internal SSH
 # key (never shipped). This workflow therefore provisions its own throwaway
@@ -45,9 +47,6 @@ name: perf
 #     target/started_at travel inside the JSON itself).
 
 on:
-  workflow_run:
-    workflows: ["image"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -64,11 +63,6 @@ concurrency:
 
 jobs:
   perf:
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
