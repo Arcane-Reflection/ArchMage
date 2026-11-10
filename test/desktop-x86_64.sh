@@ -106,7 +106,7 @@ elif [ -n "$REPO_DIR" ]; then
     rm -rf "$STAGING"; cp -a "$REPO_DIR/." "$STAGING/"
 fi
 if [ ! -f "$STAGING/cn.db.tar.zst" ]; then
-    echo "::error::staging repo lacks cn.db.tar.zst — downloaded content:"
+    echo "::error::staging repo lacks cn.db.tar.zst (run_id=$run_id) — downloaded content:"
     ls -la "$STAGING" >&2 || true
     die "wrong artifact downloaded?"
 fi
