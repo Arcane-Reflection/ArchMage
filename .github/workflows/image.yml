@@ -89,6 +89,37 @@ jobs:
               python3 python3-pip xz-utils gnupg jq
           python3 --version
 
+      - name: Wait for the matching packages run (staging freshness)
+        # This push usually also triggered packages.yml; the image jobs
+        # consume its staging artifacts. Resolving "latest successful" while
+        # that run is still in flight consumes a STALE staging repo
+        # (observed D-0 pass 1: the desktop job raced ahead of packages and
+        # installed the pre-D-0 desktop umbrella — brand gates failed).
+        # Wait for a SUCCESSFUL run of THIS commit, bounded; fall back to
+        # latest-successful with a warning (older-SHA re-runs).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            ok="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                    --commit "$GITHUB_SHA" --status success --limit 1 \
+                    --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)"
+            if [ -n "$ok" ]; then
+              echo "packages run $ok (this commit) is green"
+              exit 0
+            fi
+            live="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                      --commit "$GITHUB_SHA" --limit 1 \
+                      --json status --jq '.[0].status' 2>/dev/null || true)"
+            case "$live" in
+              queued|in_progress) echo "packages run for $GITHUB_SHA still $live (wait $i)"; sleep 30 ;;
+              *) echo "::warning::no packages run for $GITHUB_SHA ($live) — falling back to latest successful staging"
+                 exit 0 ;;
+            esac
+          done
+          echo "::warning::timed out waiting for packages run of $GITHUB_SHA — falling back to latest successful staging"
+
       - name: Resolve source packages.yml run
         id: srcrun
         env:
@@ -265,6 +296,32 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends xz-utils gnupg jq
 
+      - name: Wait for the matching packages run (staging freshness)
+        # Same race as the desktop job: this push may have also triggered a
+        # fresh packages.yml run — wait for it before consuming staging.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            ok="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                    --commit "$GITHUB_SHA" --status success --limit 1 \
+                    --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)"
+            if [ -n "$ok" ]; then
+              echo "packages run $ok (this commit) is green"
+              exit 0
+            fi
+            live="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                      --commit "$GITHUB_SHA" --limit 1 \
+                      --json status --jq '.[0].status' 2>/dev/null || true)"
+            case "$live" in
+              queued|in_progress) echo "packages run for $GITHUB_SHA still $live (wait $i)"; sleep 30 ;;
+              *) echo "::warning::no packages run for $GITHUB_SHA ($live) — falling back to latest successful staging"
+                 exit 0 ;;
+            esac
+          done
+          echo "::warning::timed out waiting for packages run of $GITHUB_SHA — falling back to latest successful staging"
+
       - name: Build, boot and assert the x86_64 dev image (smoke gate)
         # smoke-x86_64.sh builds the rootfs (mkrootfs-x86_64.sh, self-wrapped
         # archlinux:base container via docker), boots it headless in QEMU
@@ -375,7 +432,9 @@ jobs:
 
   desktop-x86_64-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60m: D-0 added the same-commit packages-run wait (up to 30m) on top of
+    # the ~20-40m Omarchy-base build (T-01-13).
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -386,6 +445,34 @@ jobs:
       - name: Check out repository
         # v7.0.1
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Wait for the matching packages run (staging freshness)
+        # The desktop build consumes staging-repo-x86_64 built from THIS
+        # commit's overlay; a fresh packages.yml run from the same push may
+        # still be in flight — consuming the previous one fails the brand
+        # gates on a stale staging repo (observed D-0 pass 1).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            ok="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                    --commit "$GITHUB_SHA" --status success --limit 1 \
+                    --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)"
+            if [ -n "$ok" ]; then
+              echo "packages run $ok (this commit) is green"
+              exit 0
+            fi
+            live="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow packages.yml \
+                      --commit "$GITHUB_SHA" --limit 1 \
+                      --json status --jq '.[0].status' 2>/dev/null || true)"
+            case "$live" in
+              queued|in_progress) echo "packages run for $GITHUB_SHA still $live (wait $i)"; sleep 30 ;;
+              *) echo "::warning::no packages run for $GITHUB_SHA ($live) — falling back to latest successful staging"
+                 exit 0 ;;
+            esac
+          done
+          echo "::warning::timed out waiting for packages run of $GITHUB_SHA — falling back to latest successful staging"
 
       - name: Build the desktop x86_64 image (Omarchy 4.5.x base)
         # desktop-x86_64.sh (D-0 Omarchy base mode) self-wraps into a

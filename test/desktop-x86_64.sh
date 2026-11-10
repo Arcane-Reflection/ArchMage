@@ -198,34 +198,14 @@ if [ "$LEGACY" = no ]; then
         || die "test/omarchy-version.txt: not a pkgver-pkgrel ($OMARCHY_VERSION)"
     info "Omarchy base pin: omarchy=$OMARCHY_VERSION"
 
-    # Chicken-and-egg: the [omarchy] repo db/packages are signed by the
-    # omarchy keyring, so the keyring itself cannot come FROM a verified
-    # pacman transaction. Break it deterministically: fetch the repo db
-    # (plain HTTPS), read the omarchy-keyring package FILENAME + SHA256SUM
-    # from the db, fetch the package and verify it against the db entry
-    # before extracting the keyrings into /usr/share/pacman/keyrings/, then
-    # pacman-key --populate omarchy does the import+lsign+trust dance.
-    oma_db="$OUT_DIR/omarchy.db.tar.zst"
-    curl -fsSL --retry 3 --retry-delay 5 \
-        -o "$oma_db" "https://pkgs.omarchy.org/stable/x86_64/omarchy.db.tar.zst"
-    keydir="$(tar --zstd -tf "$oma_db" \
-        | awk -F/ '/^omarchy-keyring-[^/]+\/desc$/ {print $1; exit}')"
-    [ -n "$keydir" ] || die "omarchy repo db has no omarchy-keyring entry"
-    keyfile="$(tar --zstd -xOf "$oma_db" "$keydir/desc" \
-        | awk '/^%FILENAME%$/ {getline; print; exit}')"
-    keysha="$(tar --zstd -xOf "$oma_db" "$keydir/desc" \
-        | awk '/^%SHA256SUM%$/ {getline; print; exit}')"
-    [ -n "$keyfile" ] && [ -n "$keysha" ] || die "cannot read keyring FILENAME/SHA256SUM from db ($keydir)"
-    oma_keyring_pkg="$OUT_DIR/$keyfile"
-    curl -fsSL --retry 3 --retry-delay 5 \
-        -o "$oma_keyring_pkg" "https://pkgs.omarchy.org/stable/x86_64/$keyfile"
-    echo "$keysha  $oma_keyring_pkg" | sha256sum -c - >/dev/null \
-        || die "omarchy-keyring package sha256 mismatch ($keyfile)"
-    tar --zstd -xf "$oma_keyring_pkg" -C /
-    # Populate both keyrings exactly like the staging key above.
-    pacman-key --populate omarchy >/dev/null 2>&1
+    # Deterministic chicken-and-egg break (shared with packages.yml x86_64):
+    # test/omarchy-keyring-bootstrap.sh fetches the repo db, verifies the
+    # omarchy-keyring package against the db's SHA256 entry, extracts the
+    # keyrings and populates. Populate BOTH keyrings exactly like the
+    # staging key above (host default + the pacstrap GPGDir).
+    bash "$REPO_ROOT/test/omarchy-keyring-bootstrap.sh"
     pacman-key --gpgdir "$gpgdir" --populate omarchy >/dev/null 2>&1
-    info "omarchy keyring populated (host + pacstrap keyrings)"
+    info "omarchy keyring populated (host via shared script + pacstrap keyring)"
 fi
 
 pacman_conf="$OUT_DIR/pacman-desktop-install.conf"

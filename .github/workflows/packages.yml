@@ -272,6 +272,18 @@ jobs:
           set -euo pipefail
           mkdir -p "$SRCDEST" "$PKGDEST" build-logs
           chown -R builder:builder "$GITHUB_WORKSPACE/.cache"
+          # D-0: desktop-layer packages may depend on the Omarchy base (e.g.
+          # archmage-branding -> omarchy-settings). makepkg --syncdeps
+          # resolves via SYNC databases only, so the x86_64 container needs
+          # the [omarchy] stable channel + its keyring — bootstrapped the
+          # same deterministic way as the image builder (shared script).
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            grep -q '^\[omarchy\]' /etc/pacman.conf || printf '%s\n' '' \
+              '[omarchy]' \
+              'Server = https://pkgs.omarchy.org/stable/$arch' >> /etc/pacman.conf
+            bash "$GITHUB_WORKSPACE/test/omarchy-keyring-bootstrap.sh"
+            pacman -Sy --noconfirm >/dev/null
+          fi
           # In-container local repo: makepkg -s resolves deps via `pacman -S`,
           # which consults SYNC databases only — `pacman -U`-installed leaves
           # are invisible to it (run 37111720534: umbrella failed pass 2 with
