@@ -77,6 +77,17 @@ jobs:
           # the whole pipeline (matching, repo-add, consumers) expects zstd.
           # Appended LAST so it wins when makepkg sources the conf.
           printf "\n# ArchMage: zstd packages on aarch64 (pipeline expectation)\nPKGEXT='.pkg.tar.zst'\n" >> /etc/makepkg.conf
+          # x86_64 only: deterministic dual mirrorlist BEFORE any pacman -Sy
+          # (runner is US-hosted — official geo CDN first, TUNA fallback). The
+          # stock image list 404'd fresh packages via a stale TUNA path (run
+          # 42730496954: networkmanager/snapper/btrfs-progs). aarch64/menci
+          # keeps its own working config.
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            printf '%s\n' \
+              'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
+              'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
+              > /etc/pacman.d/mirrorlist
+          fi
           # Keyring package must be installed BEFORE --populate (populate
           # reads /usr/share/pacman/keyrings/<keyring_name>.gpg from the
           # package). First run 42730049592 passed the PACKAGE name to
@@ -161,6 +172,17 @@ jobs:
                   *" $g "*) ;;
                   *) continue ;;
                 esac
+                # PKGBUILD arch= filter: the package must declare support for
+                # matrix.arch (or be arch-independent). Phone-scoped packages
+                # declare arch=(aarch64) and never build on the desktop leg.
+                supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
+                case " $supported " in
+                  *" ${{ matrix.arch }} "*|*" any "*) ;;
+                  *)
+                    echo "::notice::$d skipped — arch=($supported) does not cover ${{ matrix.arch }}"
+                    continue
+                    ;;
+                esac
                 if [ -f "$d/PKGBUILD" ]; then
                   if [ -f "$d/.ci-defer" ]; then
                     echo "::notice::$d carries .ci-defer — excluded from the staging build ($(head -n1 "$d/.ci-defer"))"
@@ -187,6 +209,11 @@ jobs:
                   g="$(printf '%s' "$d" | cut -d/ -f2)"
                   case " ${{ matrix.groups }} " in
                     *" $g "*) ;;
+                    *) continue ;;
+                  esac
+                  supported="$(sed -n 's/^arch=(\([^)]*\)).*/\1/p' "$d/PKGBUILD" | head -1)"
+                  case " $supported " in
+                    *" ${{ matrix.arch }} "*|*" any "*) ;;
                     *) continue ;;
                   esac
                   if [ -f "$d/PKGBUILD" ] && [ ! -f "$d/.ci-defer" ]; then
