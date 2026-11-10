@@ -54,13 +54,20 @@ if ! command -v pacman >/dev/null 2>&1; then
     command -v docker >/dev/null 2>&1 || die "no pacman and no docker — cannot build"
     info "self-wrapping into a privileged archlinux:base container"
     mkdir -p "$REPO_ROOT/test/build/desktop/pacman-cache"
+    # Pass the PARSED state, not "$@": the arg-parse loop shifts options
+    # away, so after parsing "$@" is empty and the inner script would run
+    # with FROM_CI=no (observed live: inner resolve skipped, staging check
+    # died on an unset run_id).
+    inner_args=()
+    [ "$FROM_CI" = yes ] && inner_args+=(--from-ci)
+    [ -n "$REPO_DIR" ] && inner_args+=(--repo-dir "$REPO_DIR")
     exec docker run --rm --privileged --platform linux/x86_64 \
         -v "$REPO_ROOT":/w -w /w \
         -v "$REPO_ROOT/test/build/desktop/pacman-cache":/var/cache/pacman/pkg \
         -e GH_TOKEN="${GH_TOKEN:-}" -e ARCHMAGE_IN_CONTAINER=1 \
         -e ARCHMAGE_DESKTOP_MIRROR_ORDER="${ARCHMAGE_DESKTOP_MIRROR_ORDER:-}" \
         archlinux:base-devel \
-        bash test/desktop-x86_64.sh "$@"
+        bash test/desktop-x86_64.sh "${inner_args[@]}"
 fi
 
 [ "$(id -u)" = 0 ] || die "must run as root (inside the privileged container)"
