@@ -162,7 +162,7 @@ if [ "$INNER" = no ]; then
         set +e
         # shellcheck disable=SC2086
         "$ARCHMAGE_ENGINE" run "${WRAP_ARGS[@]}" archlinux:base bash -c \
-            "pacman -Sy --noconfirm qemu-emulators-full openssh jq e2fsprogs >/dev/null 2>&1 && bash test/smoke-x86_64.sh $INNER_CMD"
+            "grep -q '^\[extra\]' /etc/pacman.conf || printf '\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf; pacman -Syu --noconfirm qemu-emulators-full openssh jq e2fsprogs unzip && bash test/smoke-x86_64.sh $INNER_CMD"
         RC=$?
         set -e
         exit "$RC"
