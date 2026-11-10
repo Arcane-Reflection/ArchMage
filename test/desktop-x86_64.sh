@@ -105,7 +105,11 @@ if [ "$FROM_CI" = yes ]; then
 elif [ -n "$REPO_DIR" ]; then
     rm -rf "$STAGING"; cp -a "$REPO_DIR/." "$STAGING/"
 fi
-[ -f "$STAGING/cn.db.tar.zst" ] || die "staging repo lacks cn.db.tar.zst — wrong artifact?"
+if [ ! -f "$STAGING/cn.db.tar.zst" ]; then
+    echo "::error::staging repo lacks cn.db.tar.zst — downloaded content:"
+    ls -la "$STAGING" >&2 || true
+    die "wrong artifact downloaded?"
+fi
 [ -f "$STAGING/staging-key.asc" ] || die "staging repo lacks staging-key.asc"
 # packages.yml keeps producing cn.db.tar.zst; the [archmage-testing] section
 # requests archmage-testing.db — provide both names (mkrootfs 03-03 pattern).
