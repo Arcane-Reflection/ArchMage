@@ -914,9 +914,10 @@ SFDISK
     # the transaction dies with "unresolvable package conflicts detected"
     # (observed live 03-01). The package itself provides the virtual too, so
     # the image's dependency graph stays consistent after the transaction.
-    # archmage-cn umbrella + archmage-btrfs-rollback are now arch=(aarch64)
-    # phone-scoped (desktop split, 2026-11-10) — the x86_64 dev VM installs
-    # the cn children explicitly instead (staging any-arch packages).
+    # archmage-cn umbrella is now arch=(aarch64) phone-scoped (desktop
+    # split, 2026-11-10) — the x86_64 dev VM installs the cn children
+    # explicitly instead (staging any-arch packages). btrfs-rollback stayed
+    # arch=(any): its rollback machinery files are gate-checked here.
     pacstrap -C "$X86_64_DIR/pacman-install.conf" \
         "$ROOTFS_DIR" \
         --assume-installed phosh-osk-provider=1 \
@@ -924,7 +925,7 @@ SFDISK
         "${WAYDROID_PKGS[@]}" \
         grub grub-btrfs snapper snap-pac btrfs-progs dosfstools \
         archmage-cn-locale archmage-cn-fonts-meta archmage-cn-net \
-        archmage-cn-apn archmage-phosh-safety \
+        archmage-cn-apn archmage-phosh-safety archmage-btrfs-rollback \
         greetd seatd stevia phosh-mobile-settings hunspell-en_us
 
     # Space guard: the sparse image allocation must still leave >= 1 GiB free
