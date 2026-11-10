@@ -19,7 +19,6 @@ set -euo pipefail
 
 BASE="${1:-https://pkgs.omarchy.org/stable/x86_64}"
 
-[ "$(id -u)" = 0 ] || { echo "ERROR: must run as root (pacman-key --populate)" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "ERROR: curl missing" >&2; exit 1; }
 
 db="$(mktemp /tmp/omarchy.db.XXXXXX.tar.zst)"
@@ -27,16 +26,29 @@ pkg="$(mktemp /tmp/omarchy-keyring.XXXXXX.pkg.tar.zst)"
 trap 'rm -f "$db" "$pkg"' EXIT
 
 curl -fsSL --retry 3 --retry-delay 5 -o "$db" "$BASE/omarchy.db.tar.zst"
-keydir="$(tar --zstd -tf "$db" | awk -F/ '/^omarchy-keyring-[^/]+\/desc$/ {print $1; exit}')"
+# No early-exit pipes under `set -o pipefail`: `tar | awk '...exit'` made tar
+# die of SIGPIPE (exit 141, observed packages run 42894544015) the moment awk
+# matched. Read the whole (tiny) stream, then parse in memory.
+list="$(tar --zstd -tf "$db")"
+keydir=""
+while IFS= read -r line; do
+    case "$line" in
+        omarchy-keyring-*/desc) keydir="${line%/desc}"; break ;;
+    esac
+done <<< "$list"
 [ -n "$keydir" ] || { echo "ERROR: omarchy repo db has no omarchy-keyring entry" >&2; exit 1; }
-keyfile="$(tar --zstd -xOf "$db" "$keydir/desc" | awk '/^%FILENAME%$/ {getline; print; exit}')"
-keysha="$(tar --zstd -xOf "$db" "$keydir/desc" | awk '/^%SHA256SUM%$/ {getline; print; exit}')"
+desc="$(tar --zstd -xOf "$db" "$keydir/desc")"
+keyfile="$(printf '%s\n' "$desc" | sed -n '/^%FILENAME%$/{n;p;}')"
+keysha="$(printf '%s\n' "$desc" | sed -n '/^%SHA256SUM%$/{n;p;}')"
 [ -n "$keyfile" ] && [ -n "$keysha" ] \
     || { echo "ERROR: cannot read FILENAME/SHA256SUM from db ($keydir)" >&2; exit 1; }
 
 curl -fsSL --retry 3 --retry-delay 5 -o "$pkg" "$BASE/$keyfile"
 echo "$keysha  $pkg" | sha256sum -c - >/dev/null \
     || { echo "ERROR: omarchy-keyring package sha256 mismatch ($keyfile)" >&2; exit 1; }
+
+# Root is required only for the two mutations below.
+[ "$(id -u)" = 0 ] || { echo "ERROR: must run as root (pacman-key --populate)" >&2; exit 1; }
 tar --zstd -xf "$pkg" -C /
 pacman-key --populate omarchy
 echo "--- omarchy keyring populated ($keyfile) ---"
