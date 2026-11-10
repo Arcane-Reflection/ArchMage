@@ -92,7 +92,7 @@ jobs:
           # reads /usr/share/pacman/keyrings/<keyring_name>.gpg from the
           # package). First run 42730049592 passed the PACKAGE name to
           # --populate and both legs died on a nonexistent keyring file.
-          pacman -Sy --noconfirm --needed base-devel pacman-contrib git sudo gnupg ${{ matrix.keyring_pkg }}
+          pacman -Syu --noconfirm --needed base-devel pacman-contrib git sudo gnupg ${{ matrix.keyring_pkg }}
           pacman-key --init
           pacman-key --populate ${{ matrix.keyring_name }}
 

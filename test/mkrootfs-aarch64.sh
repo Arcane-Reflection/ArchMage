@@ -250,7 +250,7 @@ container_main() {
     if ! grep -q '^DisableSandbox' /etc/pacman.conf; then
         sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
     fi
-    pacman -Sy --noconfirm --needed e2fsprogs archlinuxarm-keyring
+    pacman -Syu --noconfirm --needed e2fsprogs archlinuxarm-keyring
 
     # 1) Fresh unpack of the verified tarball.
     rm -rf "$ROOTFS_DIR"

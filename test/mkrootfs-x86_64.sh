@@ -303,7 +303,7 @@ ensure_phosh_compat_wlroots() {
     if [ ! -s "$cached_pkg" ] || [ ! -f "$marker" ]; then
         archmage_info "building wlroots0.20 $upver with the $patch_id patch (phosh#422; cached after first build)"
         # Build deps for the wlroots meson build (throwaway build container).
-        pacman -Sy --noconfirm --needed base-devel git meson ninja wayland \
+        pacman -Syu --noconfirm --needed base-devel git meson ninja wayland \
             wayland-protocols libdrm mesa libglvnd egl-wayland libinput \
             libxkbcommon libxkbcommon-x11 pixman libcap seatd lcms2 \
             libdisplay-info hwdata libxcb xcb-util-wm xcb-util-renderutil \
@@ -488,7 +488,7 @@ ensure_phoc_im_grab_fix() {
         # glib-mkenums (split out of glib2; meson reads the tool variable
         # from glib-2.0.pc and hard-fails when the binary is absent —
         # observed live 03-01).
-        pacman -Sy --noconfirm --needed base-devel git meson ninja phoc \
+        pacman -Syu --noconfirm --needed base-devel git meson ninja phoc \
             glib2-devel \
             > /dev/null || \
             die "phoc build deps pacman -Sy failed (see the pacman output above)"
@@ -642,7 +642,7 @@ container_main() {
     # mkfs.btrfs + subvolume tooling (btrfs-progs), mkfs.vfat (dosfstools) —
     # these run against the target disk HERE in the container, they are not
     # merely pacstrap'd into the image.
-    pacman -Sy --noconfirm --needed arch-install-scripts archlinux-keyring \
+    pacman -Syu --noconfirm --needed arch-install-scripts archlinux-keyring \
         btrfs-progs dosfstools
     archmage::require_cmd pacstrap pacman-key mkfs.ext4 sfdisk mkfs.btrfs \
         mkfs.vfat losetup btrfs truncate du

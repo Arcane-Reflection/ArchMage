@@ -94,7 +94,11 @@ else
         'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
         > /etc/pacman.d/mirrorlist
 fi
-pacman -Sy --noconfirm --needed arch-install-scripts btrfs-progs dosfstools \
+# Full -Syu: rolling-distro partial-upgrade trap — '-Sy pkg' pulled a
+# new openssl mid-transition and broke the container's own pacman
+# (libssl.so.3 gone, run 42799345601). Upgrade EVERYTHING in one
+# transaction so the throwaway container is ABI-consistent.
+pacman -Syu --noconfirm --needed arch-install-scripts btrfs-progs dosfstools \
     e2fsprogs gnupg grub jq sudo github-cli
 
 # ---- staging repo acquisition ----

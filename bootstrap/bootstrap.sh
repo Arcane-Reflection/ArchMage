@@ -347,7 +347,7 @@ container_main() {
     # missing rsync only surfaces as "Failed to copy base_aarch64" after the
     # whole pacstrap. parted/e2fsprogs cover partprobe/e2fsck/resize2fs which
     # kbs image/image.py calls at host level.
-    pacman -Sy --noconfirm --needed \
+    pacman -Syu --noconfirm --needed \
         arch-install-scripts base-devel git e2fsprogs parted rsync sudo openssh \
         archlinuxarm-keyring
     archmage::require_cmd makepkg pacstrap losetup debugfs mkfs.ext4 git python3 \
