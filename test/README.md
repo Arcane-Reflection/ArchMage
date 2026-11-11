@@ -32,3 +32,14 @@ unprivileged.
 Local rebuild (Linux host or docker): `ARCHMAGE_DESKTOP_MIRROR_ORDER=cn
 bash test/desktop-x86_64.sh --from-ci` (~20–40 min/round).
 
+### Differential builds on the packages pipeline (CI note)
+
+The CI build container resolves cross-package deps through a throwaway
+`[archmage-local]` repo (`Server = file://…`). `repo-add` only indexes files
+in place — it does NOT copy them — so every indexed package file must also be
+copied into the repo dir, or `pacman -S` in a later `makepkg --syncdeps`
+fails instantly on the file:// fetch. Two seeding paths depend on this: the
+cache seeding (differential builds whose leaves are cache-only, never
+installed into the ephemeral container) and the in-loop install of freshly
+built packages.
+

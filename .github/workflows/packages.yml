@@ -301,6 +301,13 @@ jobs:
           # fails in every pass (run 42731233186: cn umbrella built alone).
           mapfile -t cached < <(find "$PKGDEST" -maxdepth 1 -name '*.pkg.tar.zst' | sort)
           if [ "${#cached[@]}" -gt 0 ]; then
+            # Copy cached packages INTO the repo dir: repo-add only indexes
+            # in place, so without this a file:// fetch resolves to
+            # $LOCALREPO/<pkg> and misses — a differential build whose deps
+            # are cache-only (never installed into this container) died in
+            # seconds on "target not found" (run 42926202118: desktop v3
+            # alone, branding/cn leaves cache-seeded but unreachable).
+            cp "${cached[@]}" "$LOCALREPO/"
             repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${cached[@]}" >/dev/null
             pacman -Sy --noconfirm >/dev/null
             echo "--- seeded local repo with ${#cached[@]} cached package(s) ---"
@@ -356,6 +363,9 @@ jobs:
                 # resolve this one as a dependency.
                 mapfile -t built < <(for f in "${own[@]}"; do [ -e "$f" ] && printf '%s\n' "$f"; done)
                 if [ "${#built[@]}" -gt 0 ]; then
+                  # Same copy discipline as the cache seeding: later packages
+                  # (and retry passes) must be able to file://-fetch this one.
+                  cp "${built[@]}" "$LOCALREPO/"
                   repo-add "$LOCALREPO/archmage-local.db.tar.zst" "${built[@]}"
                   pacman -Sy --noconfirm >/dev/null
                   pacman -U --noconfirm "${built[@]}"
