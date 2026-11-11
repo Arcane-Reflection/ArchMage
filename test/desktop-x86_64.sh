@@ -52,7 +52,7 @@
 #   archmage-desktop in the pacman db, GRUB installed, subvolumes + snapper
 #   config, user archmage present.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -63,8 +63,23 @@ FROM_CI=no
 LEGACY=no
 run_id=""
 
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+die() { printf '::error::FATAL: %s\n' "$*" >&2; exit 1; }
 info() { printf '==> %s\n' "$*"; }
+
+# Anonymous-debug channel: CI step logs are not readable without admin, and
+# the check-run annotation for a bare exit is useless. Tee the whole console
+# to a log; on any command failure the ERR trap re-emits the tail as
+# ::error:: workflow annotations (newline-encoded %0A, one annotation).
+mkdir -p "$OUT_DIR"
+exec > >(tee "$OUT_DIR/build-console.log") 2>&1
+on_err() {
+    rc=$?
+    joined="$(tail -n 25 "$OUT_DIR/build-console.log" | cut -c1-150 \
+        | awk '{printf "%s%%0A", $0}')"
+    printf '::error::desktop build failed rc=%s near line %s\n' "$rc" "$LINENO" >&2
+    printf '::error::console tail: %s\n' "${joined:-<nothing captured>}" >&2
+}
+trap on_err ERR
 
 while [ $# -gt 0 ]; do
     case "$1" in
