@@ -68,18 +68,20 @@ info() { printf '==> %s\n' "$*"; }
 
 # Anonymous-debug channel: CI step logs are not readable without admin, and
 # the check-run annotation for a bare exit is useless. Tee the whole console
-# to a log; on any command failure the ERR trap re-emits the tail as
-# ::error:: workflow annotations (newline-encoded %0A, one annotation).
+# to a log; on a non-zero exit the EXIT trap re-emits the tail as ::error::
+# workflow annotations (newline-encoded %0A). EXIT (not ERR) so explicit
+# `exit 1` gate paths are covered too.
 mkdir -p "$OUT_DIR"
 exec > >(tee "$OUT_DIR/build-console.log") 2>&1
 on_err() {
     rc=$?
+    [ "$rc" -eq 0 ] && return 0
     joined="$(tail -n 25 "$OUT_DIR/build-console.log" | cut -c1-150 \
         | awk '{printf "%s%%0A", $0}')"
-    printf '::error::desktop build failed rc=%s near line %s\n' "$rc" "$LINENO" >&2
+    printf '::error::desktop build failed rc=%s\n' "$rc" >&2
     printf '::error::console tail: %s\n' "${joined:-<nothing captured>}" >&2
 }
-trap on_err ERR
+trap on_err EXIT
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,6 +99,20 @@ done
 if ! command -v pacman >/dev/null 2>&1; then
     command -v docker >/dev/null 2>&1 || die "no pacman and no docker — cannot build"
     info "self-wrapping into a privileged archlinux:base container"
+    # Pull EXPLICITLY with retries + annotations: an exec'd `docker run`
+    # that dies on a failed/hung pull (Docker Hub rate-limits GH runner IP
+    # pools) exits the replaced shell with no trap — six silent 3-minute
+    # failures. A visible, retried pull turns that into a diagnosable event.
+    pull_ok=no
+    for attempt in 1 2 3 4 5; do
+        if docker pull --platform linux/x86_64 archlinux:base-devel; then
+            pull_ok=yes
+            break
+        fi
+        printf '::warning::docker pull attempt %s failed\n' "$attempt" >&2
+        sleep 20
+    done
+    [ "$pull_ok" = yes ] || die "docker pull failed after 5 attempts (Docker Hub unreachable/rate-limited)"
     mkdir -p "$REPO_ROOT/test/build/desktop/pacman-cache"
     # Pass the PARSED state, not "$@": the arg-parse loop shifts options
     # away, so after parsing "$@" is empty and the inner script would run
