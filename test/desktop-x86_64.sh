@@ -69,14 +69,17 @@ info() { printf '==> %s\n' "$*"; }
 # Anonymous-debug channel: CI step logs are not readable without admin, and
 # the check-run annotation for a bare exit is useless. Tee the whole console
 # to a log; on a non-zero exit the EXIT trap re-emits the tail as ::error::
-# workflow annotations (newline-encoded %0A). EXIT (not ERR) so explicit
-# `exit 1` gate paths are covered too.
+# workflow annotations (newline-encoded %0A). The tail is capped SMALL on
+# purpose: GitHub silently DROPS annotation messages over ~4KB (25x150 with
+# %0A encoding crossed it — three rounds emitted nothing at all). Phase
+# markers (::notice::) localize the death even if a tail is dropped.
 mkdir -p "$OUT_DIR"
 exec > >(tee "$OUT_DIR/build-console.log") 2>&1
+pmark() { printf '::notice::phase: %s\n' "$*"; }
 on_err() {
     rc=$?
     [ "$rc" -eq 0 ] && return 0
-    joined="$(tail -n 25 "$OUT_DIR/build-console.log" | cut -c1-150 \
+    joined="$(tail -n 12 "$OUT_DIR/build-console.log" | cut -c1-100 \
         | awk '{printf "%s%%0A", $0}')"
     printf '::error::desktop build failed rc=%s\n' "$rc" >&2
     printf '::error::console tail: %s\n' "${joined:-<nothing captured>}" >&2
@@ -165,6 +168,7 @@ fi
 # transaction so the throwaway container is ABI-consistent.
 pacman -Syu --noconfirm --needed arch-install-scripts btrfs-progs dosfstools \
     e2fsprogs gnupg jq sudo github-cli
+pmark "container toolchain ready"
 
 # ---- mode constants ---------------------------------------------------------
 if [ "$LEGACY" = yes ]; then
@@ -224,6 +228,7 @@ pacman-key --gpgdir "$gpgdir" --populate archlinux >/dev/null 2>&1
 pacman-key --gpgdir "$gpgdir" --add "$STAGING/staging-key.asc" >/dev/null 2>&1
 pacman-key --gpgdir "$gpgdir" --lsign-key "$fpr" >/dev/null 2>&1
 info "staging key $fpr imported and locally signed (default + pacstrap keyrings)"
+pmark "staging acquired"
 
 OMARCHY_VERSION=""
 if [ "$LEGACY" = no ]; then
@@ -242,6 +247,7 @@ if [ "$LEGACY" = no ]; then
     pacman-key --gpgdir "$gpgdir" --populate omarchy >/dev/null 2>&1
     info "omarchy keyring populated (host via shared script + pacstrap keyring)"
 fi
+pmark "keyrings ready"
 
 pacman_conf="$OUT_DIR/pacman-desktop-install.conf"
 if [ "$LEGACY" = yes ]; then
@@ -354,6 +360,7 @@ fi
 mount -o compress=zstd:1,subvol=@var "$ROOT_LOOP" "$mnt/var"
 chattr +C "$mnt/var" 2>/dev/null || true   # NoCOW for DBs (PITFALLS 6)
 mount -o compress=zstd:1,subvol=@snapshots "$ROOT_LOOP" "$mnt/.snapshots"
+pmark "disk mounted"
 
 cleanup() {
     umount "$mnt/proc" "$mnt/dev" 2>/dev/null || true
@@ -374,6 +381,7 @@ chroot="$mnt"
 # already mounted or mount point busy" — reproduced on colima/Rosetta, and
 # a latent hazard on any runner kernel that enforces it).
 
+pmark "pacstrap starting"
 if [ "$LEGACY" = yes ]; then
     pacstrap -C "$pacman_conf" -K -G -M -c "$mnt" \
         base linux linux-firmware linux-headers \
@@ -400,6 +408,7 @@ else
         networkmanager ufw \
         archmage-desktop
 fi
+pmark "pacstrap done"
 
 # The chroot config + bootloader phases exec binaries INSIDE the new root.
 # Under Rosetta (x86_64-on-ARM local builds via colima) exec needs
@@ -592,6 +601,7 @@ else
         cp "$chroot/usr/share/limine/BOOTX64.EFI" "$chroot/boot/EFI/BOOT/BOOTX64.EFI"
     }
     echo "--- initramfs + limine entries installed ---"
+    pmark "bootloader done"
 fi
 
 # ---- gates: structural assertions (exit code IS the gate) ----
