@@ -570,11 +570,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p boot-out
-          cp /usr/share/OVMF/OVMF_VARS.fd boot-out/OVMF_VARS.fd
+          # Ubuntu 26 runners renamed the OVMF payload (OVMF_CODE_4M.fd et
+          # al); glob instead of hardcoding — the first boot-verify run died
+          # in 0s on the old cp path.
+          OVMF_CODE="$(ls /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/ovmf/OVMF_CODE.fd 2>/dev/null | head -1 || true)"
+          OVMF_VARS_SRC="$(ls /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/ovmf/OVMF_VARS.fd 2>/dev/null | head -1 || true)"
+          [ -n "$OVMF_CODE" ] && [ -n "$OVMF_VARS_SRC" ] || {
+            echo "::error::OVMF firmware not found — /usr/share/OVMF* contents:"
+            ls -R /usr/share/OVMF /usr/share/ovmf 2>/dev/null || true
+            exit 1
+          }
+          printf '::notice::OVMF: %s + %s\n' "$OVMF_CODE" "$OVMF_VARS_SRC"
+          cp "$OVMF_VARS_SRC" boot-out/OVMF_VARS.fd
           IMG="$(ls desktop-image-in/archmage-desktop-*.img | head -1)"
           qemu-system-x86_64 \
             -machine q35 -m 4096 -smp 4 \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+            -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
             -drive if=pflash,format=raw,file=boot-out/OVMF_VARS.fd \
             -drive file="$IMG",format=raw,media=disk \
             -display none -no-reboot \
