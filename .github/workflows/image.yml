@@ -557,7 +557,7 @@ jobs:
         # See test/boot-verify-x86_64.sh for the chain and the gate.
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD":/w archlinux:base-devel \
+          docker run --rm -v "$PWD":/w -w /w archlinux:base-devel \
             bash test/boot-verify-x86_64.sh
 
       - name: Upload boot screenshots
