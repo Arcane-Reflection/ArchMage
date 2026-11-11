@@ -412,6 +412,7 @@ else
         "omarchy=$OMARCHY_VERSION" \
         fastfetch fzf brightnessctl \
         networkmanager ufw \
+        snapper snap-pac \
         archmage-desktop
 fi
 pmark "pacstrap done"
