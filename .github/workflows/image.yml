@@ -520,8 +520,152 @@ jobs:
           path: desktop-image-out/
           if-no-files-found: error
 
+  desktop-boot-verify:
+    # D-0.3: boot the freshly built desktop image headless in QEMU (OVMF ->
+    # limine fallback EFI -> linux-omarchy -> SDDM autologin -> Hyprland
+    # session), grab QMP screendumps while it settles, and gate on a
+    # non-black render of the final frame. Screens ship as the
+    # desktop-boot-screens artifact and ride the nightly release.
+    needs: desktop-x86_64-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Download desktop-image artifact
+        # v7.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: desktop-image
+          path: desktop-image-in/
+
+      - name: Install QEMU + OVMF
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 ovmf imagemagick
+          qemu-system-x86_64 --version | head -1
+
+      - name: Decompress image
+        run: |
+          set -euo pipefail
+          xz -T0 -d -k desktop-image-in/archmage-desktop-*.img.xz
+          ls -la desktop-image-in/
+
+      - name: Boot the desktop image and capture screenshots (gate)
+        # OVMF falls through to \EFI\BOOT\BOOTX64.EFI (limine fallback path,
+        # deployed by limine-install --fallback). Plain q35 AHCI (no virtio):
+        # the device-critical initramfs modules come from omarchy's busybox
+        # HOOKS baseline, and ahci/ata_piix are in its block set — virtio
+        # is not guaranteed. Native QMP screendumps (format=png, qemu>=7.1);
+        # the settle loop grabs a shot every 30s for 8 minutes and keeps the
+        # last frame. The gate: the final PNG must render non-black pixels
+        # (SDDM/Hyprland draw a real framebuffer) — the D-0.3 "grim 非黑屏"
+        # contract, measured from outside the VM.
+        run: |
+          set -euo pipefail
+          mkdir -p boot-out
+          cp /usr/share/OVMF/OVMF_VARS.fd boot-out/OVMF_VARS.fd
+          IMG="$(ls desktop-image-in/archmage-desktop-*.img | head -1)"
+          qemu-system-x86_64 \
+            -machine q35 -m 4096 -smp 4 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+            -drive if=pflash,format=raw,file=boot-out/OVMF_VARS.fd \
+            -drive file="$IMG",format=raw,media=disk \
+            -display none -no-reboot \
+            -serial file:boot-out/serial.log \
+            -qmp unix:/tmp/qmp.sock,server,nowait &
+          QMP_PID=$!
+          echo "qemu pid $QMP_PID"
+          python3 - <<'PYEOF'
+          import json, socket, subprocess, time, sys
+
+          sock = socket.socket(socket.AF_UNIX)
+          sock.connect('/tmp/qmp.sock')
+          f = sock.makefile('rwb')
+
+          def readmsg():
+              line = f.readline()
+              if not line:
+                  raise RuntimeError('QMP EOF')
+              return json.loads(line)
+
+          # greeting
+          while True:
+              msg = readmsg()
+              if 'QMP' in msg:
+                  break
+          f.write(json.dumps({'execute': 'qmp_capabilities'}).encode() + b'\n'); f.flush()
+          while 'return' not in readmsg():
+              pass
+
+          def screendump(path):
+              f.write(json.dumps({'execute': 'screendump',
+                                  'arguments': {'filename': path, 'format': 'png'}}).encode() + b'\n'); f.flush()
+              deadline = time.time() + 60
+              while time.time() < deadline:
+                  msg = readmsg()
+                  if 'return' in msg:
+                      return True
+                  if 'error' in msg:
+                      print('screendump error:', msg['error'])
+                      return False
+              return False
+
+          shots = []
+          for i in range(16):  # 16 x 30s = 8 min settle window
+              time.sleep(30 if shots else 60)   # first shot after 60s
+              path = f'boot-out/shot-{i:02d}.png'
+              if screendump(path):
+                  shots.append(path)
+                  print(f'shot {i}: {path}')
+          if shots:
+              print('FINAL_SHOT=' + shots[-1])
+          else:
+              print('::error::no screendump succeeded')
+              sys.exit(1)
+          PYEOF
+          LAST="$(ls -t boot-out/shot-*.png | head -1)"
+          echo "last shot: $LAST"
+          # Non-black gate: mean luminance of the final frame (ImageMagick).
+          MEAN="$(convert "$LAST" -colorspace Gray -format "%[fx:mean*255]" info: 2>/dev/null || echo 0)"
+          echo "frame mean luminance: $MEAN"
+          python3 -c "
+          mean = float('$MEAN')
+          if mean < 2.0:
+              print('::error::final frame is (near-)black: mean luminance %.1f < 2.0' % mean)
+              sys.exit(1)
+          print('boot render OK: mean luminance %.1f' % mean)
+          "
+          # Ship the last two frames + serial tail as the screenshot evidence.
+          mkdir -p desktop-boot-screens
+          ls -t boot-out/shot-*.png | head -2 | while read -r p; do cp "$p" desktop-boot-screens/; done
+          tail -n 40 boot-out/serial.log > desktop-boot-screens/serial-tail.log 2>/dev/null || true
+          {
+            echo "ArchMage desktop boot verification (D-0.3)"
+            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "frame: $LAST (mean luminance $MEAN/255 — non-black render gate passed)"
+            echo "chain: OVMF -> limine fallback EFI -> linux-omarchy -> SDDM autologin -> Hyprland"
+          } > desktop-boot-screens/BOOT-VERIFY.txt
+          cat desktop-boot-screens/BOOT-VERIFY.txt
+          kill "$QMP_PID" 2>/dev/null || true
+
+      - name: Upload boot screenshots
+        # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: desktop-boot-screens
+          path: desktop-boot-screens/
+          if-no-files-found: error
+
   publish-nightly:
-    needs: [op6-image, qemu-x86_64-image, desktop-x86_64-image]
+    needs: [op6-image, qemu-x86_64-image, desktop-x86_64-image, desktop-boot-verify]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -551,6 +695,13 @@ jobs:
           name: qemu-x86_64-image
           path: release-assets/qemu-x86_64/
 
+      - name: Download desktop boot screenshots
+        # v7.0.0 — D-0.3 evidence ships with the nightly.
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: desktop-boot-screens
+          path: release-assets/desktop-boot/
+
       - name: Publish nightly prerelease (gh CLI)
         # Official gh CLI only (T-01-03: no third-party release action).
         # - recreate the moving `nightly` prerelease with the CURRENT asset
@@ -563,7 +714,7 @@ jobs:
         run: |
           set -euo pipefail
           today="$(date -u +%Y%m%d)"
-          notes="$(printf 'ArchMage nightly images (auto-built %s)\n\nAssets: op6 (tier=device-pending: structure-verified, device boot pending 02-02/03) and x86_64 QEMU (tier=qemu: CI-booted to SSH). Verify with the .sha256 and .sig files — see README "镜像发布".' "$(date -u +%Y-%m-%d)")"
+          notes="$(printf 'ArchMage nightly images (auto-built %s)\n\nAssets: op6 (tier=device-pending: structure-verified, device boot pending 02-02/03), x86_64 QEMU (tier=qemu: CI-booted to SSH) and desktop (tier=boot-verified: OVMF -> limine -> SDDM autologin -> Hyprland, screenshot in desktop-boot-*). Verify with the .sha256 and .sig files — see README "镜像发布".' "$(date -u +%Y-%m-%d)")"
 
           # GitHub caps release assets at 2 GiB; the x86_64 QEMU image (xz)
           # measures ~3.5 GiB (run 37263213498: upload 422 Validation Failed).
@@ -574,7 +725,7 @@ jobs:
           mkdir -p "$prepared"
           join_notes="$prepared/REJOIN-SPLIT-ASSETS.txt"
           : > "$join_notes"
-          for f in release-assets/op6/* release-assets/qemu-x86_64/* release-assets/desktop/*; do
+          for f in release-assets/op6/* release-assets/qemu-x86_64/* release-assets/desktop/* release-assets/desktop-boot/*; do
             [ -f "$f" ] || continue
             if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
               cp "$f" "$prepared/"
