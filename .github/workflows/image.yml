@@ -543,14 +543,6 @@ jobs:
           name: desktop-image
           path: desktop-image-in/
 
-      - name: Install QEMU + OVMF
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            qemu-system-x86 ovmf imagemagick
-          qemu-system-x86_64 --version | head -1
-
       - name: Decompress image
         run: |
           set -euo pipefail
@@ -558,114 +550,15 @@ jobs:
           ls -la desktop-image-in/
 
       - name: Boot the desktop image and capture screenshots (gate)
-        # OVMF falls through to \EFI\BOOT\BOOTX64.EFI (limine fallback path,
-        # deployed by limine-install --fallback). Plain q35 AHCI (no virtio):
-        # the device-critical initramfs modules come from omarchy's busybox
-        # HOOKS baseline, and ahci/ata_piix are in its block set — virtio
-        # is not guaranteed. Native QMP screendumps (format=png, qemu>=7.1);
-        # the settle loop grabs a shot every 30s for 8 minutes and keeps the
-        # last frame. The gate: the final PNG must render non-black pixels
-        # (SDDM/Hyprland draw a real framebuffer) — the D-0.3 "grim 非黑屏"
-        # contract, measured from outside the VM.
+        # The whole boot happens inside an archlinux:base-devel container:
+        # the apt channel on the migrated ubuntu-26 runner stalled 18 minutes
+        # and died installing qemu/ovmf, while the pacman channel is the
+        # exact path the desktop builder used twice-green on these runners.
+        # See test/boot-verify-x86_64.sh for the chain and the gate.
         run: |
           set -euo pipefail
-          mkdir -p boot-out
-          # Ubuntu 26 runners renamed the OVMF payload (OVMF_CODE_4M.fd et
-          # al); glob instead of hardcoding — the first boot-verify run died
-          # in 0s on the old cp path.
-          OVMF_CODE="$(ls /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/ovmf/OVMF_CODE.fd 2>/dev/null | head -1 || true)"
-          OVMF_VARS_SRC="$(ls /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/ovmf/OVMF_VARS.fd 2>/dev/null | head -1 || true)"
-          [ -n "$OVMF_CODE" ] && [ -n "$OVMF_VARS_SRC" ] || {
-            echo "::error::OVMF firmware not found — /usr/share/OVMF* contents:"
-            ls -R /usr/share/OVMF /usr/share/ovmf 2>/dev/null || true
-            exit 1
-          }
-          printf '::notice::OVMF: %s + %s\n' "$OVMF_CODE" "$OVMF_VARS_SRC"
-          cp "$OVMF_VARS_SRC" boot-out/OVMF_VARS.fd
-          IMG="$(ls desktop-image-in/archmage-desktop-*.img | head -1)"
-          qemu-system-x86_64 \
-            -machine q35 -m 4096 -smp 4 \
-            -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-            -drive if=pflash,format=raw,file=boot-out/OVMF_VARS.fd \
-            -drive file="$IMG",format=raw,media=disk \
-            -display none -no-reboot \
-            -serial file:boot-out/serial.log \
-            -qmp unix:/tmp/qmp.sock,server,nowait &
-          QMP_PID=$!
-          echo "qemu pid $QMP_PID"
-          python3 - <<'PYEOF'
-          import json, socket, subprocess, time, sys
-
-          sock = socket.socket(socket.AF_UNIX)
-          sock.connect('/tmp/qmp.sock')
-          f = sock.makefile('rwb')
-
-          def readmsg():
-              line = f.readline()
-              if not line:
-                  raise RuntimeError('QMP EOF')
-              return json.loads(line)
-
-          # greeting
-          while True:
-              msg = readmsg()
-              if 'QMP' in msg:
-                  break
-          f.write(json.dumps({'execute': 'qmp_capabilities'}).encode() + b'\n'); f.flush()
-          while 'return' not in readmsg():
-              pass
-
-          def screendump(path):
-              f.write(json.dumps({'execute': 'screendump',
-                                  'arguments': {'filename': path, 'format': 'png'}}).encode() + b'\n'); f.flush()
-              deadline = time.time() + 60
-              while time.time() < deadline:
-                  msg = readmsg()
-                  if 'return' in msg:
-                      return True
-                  if 'error' in msg:
-                      print('screendump error:', msg['error'])
-                      return False
-              return False
-
-          shots = []
-          for i in range(16):  # 16 x 30s = 8 min settle window
-              time.sleep(30 if shots else 60)   # first shot after 60s
-              path = f'boot-out/shot-{i:02d}.png'
-              if screendump(path):
-                  shots.append(path)
-                  print(f'shot {i}: {path}')
-          if shots:
-              print('FINAL_SHOT=' + shots[-1])
-          else:
-              print('::error::no screendump succeeded')
-              sys.exit(1)
-          PYEOF
-          LAST="$(ls -t boot-out/shot-*.png | head -1)"
-          echo "last shot: $LAST"
-          # Non-black gate: mean luminance of the final frame (ImageMagick).
-          MEAN="$(convert "$LAST" -colorspace Gray -format "%[fx:mean*255]" info: 2>/dev/null || echo 0)"
-          echo "frame mean luminance: $MEAN"
-          python3 -c "
-          mean = float('$MEAN')
-          if mean < 2.0:
-              print('::error::final frame is (near-)black: mean luminance %.1f < 2.0' % mean)
-              sys.exit(1)
-          print('boot render OK: mean luminance %.1f' % mean)
-          "
-          # Ship the last two frames + serial tail as the screenshot evidence.
-          mkdir -p desktop-boot-screens
-          ls -t boot-out/shot-*.png | head -2 | while read -r p; do cp "$p" desktop-boot-screens/; done
-          tail -n 40 boot-out/serial.log > desktop-boot-screens/serial-tail.log 2>/dev/null || true
-          {
-            echo "ArchMage desktop boot verification (D-0.3)"
-            echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
-            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "frame: $LAST (mean luminance $MEAN/255 — non-black render gate passed)"
-            echo "chain: OVMF -> limine fallback EFI -> linux-omarchy -> SDDM autologin -> Hyprland"
-          } > desktop-boot-screens/BOOT-VERIFY.txt
-          cat desktop-boot-screens/BOOT-VERIFY.txt
-          kill "$QMP_PID" 2>/dev/null || true
+          docker run --rm -v "$PWD":/w archlinux:base-devel \
+            bash test/boot-verify-x86_64.sh
 
       - name: Upload boot screenshots
         # v7.0.1
