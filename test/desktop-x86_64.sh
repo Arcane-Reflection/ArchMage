@@ -259,6 +259,9 @@ NoProgressBar
 DisableSandbox
 GPGDir = $gpgdir
 HoldPkg = pacman glibc
+# curl-level retries for flaky upstream mirrors (pacman has no retry of its
+# own; a mid-transaction stall dies the whole pacstrap): resume + 8 attempts.
+XferCommand = /usr/bin/curl -L --retry 8 --retry-all-errors --retry-delay 5 --speed-limit 1024 --speed-time 30 -C - -f -o %o %u
 
 [core]
 Include = /etc/pacman.d/mirrorlist
@@ -279,6 +282,9 @@ NoProgressBar
 DisableSandbox
 GPGDir = $gpgdir
 HoldPkg = pacman glibc
+# curl-level retries for flaky upstream mirrors (pacman has no retry of its
+# own; a mid-transaction stall dies the whole pacstrap): resume + 8 attempts.
+XferCommand = /usr/bin/curl -L --retry 8 --retry-all-errors --retry-delay 5 --speed-limit 1024 --speed-time 30 -C - -f -o %o %u
 
 [core]
 Include = /etc/pacman.d/mirrorlist
@@ -605,6 +611,7 @@ else
 fi
 
 # ---- gates: structural assertions (exit code IS the gate) ----
+pmark "gates starting"
 fails=0
 gate() { # gate <name> <command...>
     local name="$1"; shift
@@ -612,8 +619,14 @@ gate() { # gate <name> <command...>
         printf '  [pass] %s\n' "$name"
     else
         printf '  [FAIL] %s\n' "$name"
+        printf '::error::gate %s FAILED\n' "$name"
         fails=$((fails + 1))
     fi
+}
+gfail() { # compound-gate failure: report + count (annotation = mid-step, survives)
+    printf '  [FAIL] %s\n' "$1"
+    printf '::error::gate %s FAILED\n' "$1"
+    fails=$((fails + 1))
 }
 DB="$chroot/var/lib/pacman/local"
 
@@ -636,34 +649,34 @@ if [ "$LEGACY" = yes ]; then
     if ls -d "$DB"/archmage-desktop-*/ >/dev/null 2>&1; then
         printf '  [pass] desktop_meta_pkg\n'
     else
-        printf '  [FAIL] desktop_meta_pkg\n'; fails=$((fails + 1))
+        gfail 'desktop_meta_pkg'
     fi
     if ls -d "$DB"/archmage-cn-locale-*/ >/dev/null 2>&1; then
         printf '  [pass] cn_locale_pkg\n'
     else
-        printf '  [FAIL] cn_locale_pkg\n'; fails=$((fails + 1))
+        gfail 'cn_locale_pkg'
     fi
     if [ -f "$chroot/esp/EFI/BOOT/BOOTX64.EFI" ] && [ -f "$chroot/boot/grub/grub.cfg" ]; then
         printf '  [pass] grub_bin\n'
     else
-        printf '  [FAIL] grub_bin\n'; fails=$((fails + 1))
+        gfail 'grub_bin'
     fi
     if ls -d "$DB"/snapper-*/ >/dev/null 2>&1 && ls -d "$DB"/snap-pac-*/ >/dev/null 2>&1 \
        && grep -q "subvol=@snapshots" "$chroot/etc/fstab" \
        && [ -d "$chroot/.snapshots" ]; then
         printf '  [pass] snapper_cfg\n'
     else
-        printf '  [FAIL] snapper_cfg\n'; fails=$((fails + 1))
+        gfail 'snapper_cfg'
     fi
     if mountpoint -q "$mnt/var" && btrfs subvolume show "$mnt/.snapshots" >/dev/null 2>&1; then
         printf '  [pass] subvol_layout\n'
     else
-        printf '  [FAIL] subvol_layout\n'; fails=$((fails + 1))
+        gfail 'subvol_layout'
     fi
     if mountpoint -q "$mnt/esp"; then
         printf '  [pass] esp_mounted\n'
     else
-        printf '  [FAIL] esp_mounted\n'; fails=$((fails + 1))
+        gfail 'esp_mounted'
     fi
 
     if [ "$fails" -eq 0 ]; then
@@ -700,61 +713,61 @@ else
        && grep -q '^PRETTY_NAME="ArchMage"$' "$chroot/etc/os-release"; then
         printf '  [pass] os_release_brand\n'
     else
-        printf '  [FAIL] os_release_brand\n'; fails=$((fails + 1))
+        gfail 'os_release_brand'
     fi
     entry_count=$(find "$chroot/usr/bin" -maxdepth 1 -name 'archmage*' -type l 2>/dev/null | wc -l)
     if [ "$entry_count" -ge 500 ]; then
         printf '  [pass] entry_symlinks (%d)\n' "$entry_count"
     else
-        printf '  [FAIL] entry_symlinks (%d < 500)\n' "$entry_count"; fails=$((fails + 1))
+        gfail "entry_symlinks ($entry_count < 500)"
     fi
     if [ -f "$chroot/boot/limine.conf" ] && [ -f "$chroot/boot/EFI/BOOT/BOOTX64.EFI" ]; then
         printf '  [pass] limine_boot\n'
     else
-        printf '  [FAIL] limine_boot\n'; fails=$((fails + 1))
+        gfail 'limine_boot'
     fi
     if cmp -s "$chroot/usr/share/archmage/branding/archmage-logo.png" \
               "$chroot/usr/share/sddm/themes/archmage/logo.png"; then
         printf '  [pass] sddm_logo_swapped\n'
     else
-        printf '  [FAIL] sddm_logo_swapped\n'; fails=$((fails + 1))
+        gfail 'sddm_logo_swapped'
     fi
     if ls -d "$DB"/archmage-branding-*/ >/dev/null 2>&1; then
         printf '  [pass] branding_pkg\n'
     else
-        printf '  [FAIL] branding_pkg\n'; fails=$((fails + 1))
+        gfail 'branding_pkg'
     fi
     if ls -d "$DB"/archmage-desktop-*/ >/dev/null 2>&1; then
         printf '  [pass] desktop_meta_pkg\n'
     else
-        printf '  [FAIL] desktop_meta_pkg\n'; fails=$((fails + 1))
+        gfail 'desktop_meta_pkg'
     fi
     if ls -d "$DB"/archmage-cn-locale-*/ >/dev/null 2>&1; then
         printf '  [pass] cn_locale_pkg\n'
     else
-        printf '  [FAIL] cn_locale_pkg\n'; fails=$((fails + 1))
+        gfail 'cn_locale_pkg'
     fi
     if ls -d "$DB"/archmage-cn-fonts-meta-*/ >/dev/null 2>&1; then
         printf '  [pass] cn_fonts_pkg\n'
     else
-        printf '  [FAIL] cn_fonts_pkg\n'; fails=$((fails + 1))
+        gfail 'cn_fonts_pkg'
     fi
     if ls -d "$DB"/snapper-*/ >/dev/null 2>&1 && ls -d "$DB"/snap-pac-*/ >/dev/null 2>&1 \
        && grep -q "subvol=@snapshots" "$chroot/etc/fstab" \
        && [ -d "$chroot/.snapshots" ]; then
         printf '  [pass] snapper_cfg\n'
     else
-        printf '  [FAIL] snapper_cfg\n'; fails=$((fails + 1))
+        gfail 'snapper_cfg'
     fi
     if mountpoint -q "$mnt/var" && btrfs subvolume show "$mnt/.snapshots" >/dev/null 2>&1; then
         printf '  [pass] subvol_layout\n'
     else
-        printf '  [FAIL] subvol_layout\n'; fails=$((fails + 1))
+        gfail 'subvol_layout'
     fi
     if mountpoint -q "$mnt/boot"; then
         printf '  [pass] esp_mounted\n'
     else
-        printf '  [FAIL] esp_mounted\n'; fails=$((fails + 1))
+        gfail 'esp_mounted'
     fi
 
     if [ "$fails" -eq 0 ]; then
@@ -782,9 +795,17 @@ label: gpt
 type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, start=2048, size=$esp_sectors
 type=0FC63DAF-8483-4772-8E79-3D69D8477DE4
 DISK
+# Space guard: ROOT_IMG+ESP_IMG stay alive while dd fills OUT_IMG — the peak
+# demand approached the runner's free-disk envelope and ENOSPC killed dd
+# mid-write (silent exit 1 after the bootloader phase). conv=sparse keeps
+# the zero ranges of the mostly-unallocated btrfs image from materializing
+# in the assembled file.
+free_mb=$(df -BM --output=avail "$OUT_DIR" | tail -1 | tr -dc '0-9')
+printf '::notice::disk before dd: %sM free (need >= 6000M)\n' "$free_mb"
+[ "${free_mb:-0}" -ge 6000 ] || die "only ${free_mb}M free before dd — runner disk exhausted"
 info "dd-assembling ESP and btrfs payloads into the GPT image"
-dd if="$ESP_IMG"  of="$OUT_IMG" bs=512 seek=2048       conv=notrunc status=none
-dd if="$ROOT_IMG" of="$OUT_IMG" bs=512 seek=$root_start conv=notrunc status=none
+dd if="$ESP_IMG"  of="$OUT_IMG" bs=512 seek=2048       conv=notrunc,sparse status=none
+dd if="$ROOT_IMG" of="$OUT_IMG" bs=512 seek=$root_start conv=notrunc,sparse status=none
 rm -f "$ESP_IMG" "$ROOT_IMG"
 
 info "image: $OUT_IMG ($(du -h "$OUT_IMG" | cut -f1))"
