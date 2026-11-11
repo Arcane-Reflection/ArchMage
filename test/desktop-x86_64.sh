@@ -104,7 +104,11 @@ fi
 
 # GH Actions docker blocks Landlock; pacman 7 sandbox cannot be satisfied in
 # job containers — container-own pacman only (01-02 decision, throwaway root).
-grep -q '^DisableSandbox' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
+# EXACT match: newer archlinux images ship DisableSandboxFilesystem, and the
+# old prefix grep ('^DisableSandbox') treated that as done and never added
+# plain DisableSandbox — runc VMs that cannot install a seccomp filter
+# (colima + Rosetta) then died at "restricting syscalls via seccomp: 22".
+grep -q '^DisableSandbox$' /etc/pacman.conf || sed -i 's/^\[options\]$/[options]\nDisableSandbox/' /etc/pacman.conf
 # archlinux:base ships a pacman.conf WITHOUT [extra] — gh and the desktop
 # stack live in extra. Enable it (idempotent) before any pacman -Sy.
 grep -q '^\[extra\]' /etc/pacman.conf || printf '\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
@@ -321,7 +325,7 @@ chattr +C "$mnt/var" 2>/dev/null || true   # NoCOW for DBs (PITFALLS 6)
 mount -o compress=zstd:1,subvol=@snapshots "$ROOT_LOOP" "$mnt/.snapshots"
 
 cleanup() {
-    umount "$mnt/dev" "$mnt/proc" "$mnt/sys" 2>/dev/null || true
+    umount "$mnt/proc" "$mnt/dev" 2>/dev/null || true
     umount "$mnt/$ESP_MNT" "$mnt/.snapshots" "$mnt/var" "$mnt" 2>/dev/null || true
     losetup -d "$ESP_LOOP" "$ROOT_LOOP" 2>/dev/null || true
 }
@@ -330,15 +334,17 @@ trap cleanup EXIT INT TERM
 # ---- install: desktop stack + archmage overlay from staging (SigLevel
 # Required — the 01-02 Required discipline) ----
 chroot="$mnt"
-# Scriptlet-visible pseudofs binds: systemd systemctl + mkinitcpio + bootloader
-# tooling all require /dev /proc /sys inside the chroot.
-mkdir -p "$mnt/dev" "$mnt/proc" "$mnt/sys"
-mount --bind /dev  "$mnt/dev"
-mount --bind /proc "$mnt/proc"
-mount --bind /sys  "$mnt/sys"
+# NO manual pseudofs binds here — mkrootfs-x86_64's proven recipe (months of
+# green CI) relies on pacstrap mounting the API filesystems itself for the
+# transaction and runs the post-pacstrap chroot steps as pure file ops. This
+# script originally pre-bound /dev /proc /sys before pacstrap; pacstrap's
+# own chroot_setup then stacked fresh proc/sysfs/devtmpfs instances on top
+# and the kernel refused the same-superblock restack with EBUSY ("sys
+# already mounted or mount point busy" — reproduced on colima/Rosetta, and
+# a latent hazard on any runner kernel that enforces it).
 
 if [ "$LEGACY" = yes ]; then
-    pacstrap -C "$pacman_conf" -K -G -M "$mnt" \
+    pacstrap -C "$pacman_conf" -K -G -M -c "$mnt" \
         base linux linux-firmware linux-headers \
         grub efibootmgr os-prober \
         networkmanager ufw \
@@ -356,17 +362,32 @@ else
     # pipewire gum limine* snapper). We add the kernel + firmware, the few
     # ISO-set pieces the meta misses (fastfetch/fzf/brightnessctl/NM/ufw) and
     # our overlay (archmage-desktop pulls archmage-branding).
-    pacstrap -C "$pacman_conf" -K -G -M "$mnt" \
+    pacstrap -C "$pacman_conf" -K -G -M -c "$mnt" \
         base linux-omarchy linux-omarchy-headers linux-firmware \
         "omarchy=$OMARCHY_VERSION" \
         fastfetch fzf brightnessctl \
         networkmanager ufw \
         archmage-desktop
+fi
+
+# The chroot config + bootloader phases exec binaries INSIDE the new root.
+# Under Rosetta (x86_64-on-ARM local builds via colima) exec needs
+# /proc/self/exe, and the build root has no pseudofs of its own (pacstrap
+# mounted fresh instances for the transaction and unmounted them). Give the
+# build root proc/dev for the chroot phase — safe now that pacstrap is done;
+# tolerant so native CI runners are unaffected either way.
+mkdir -p "$mnt/proc" "$mnt/dev"
+mount --bind /proc "$mnt/proc" 2>/dev/null || \
+    info "proc bind unavailable (native runner — not needed)"
+mount --bind /dev  "$mnt/dev"  2>/dev/null || true
+
+if [ "$LEGACY" = no ]; then
     # Belt and braces: the 99-archmage-branding hook already ran inside the
     # pacstrap transaction (PostTransaction, after omarchy-settings'
     # .INSTALL re-copied its os-release); re-run once explicitly so the
     # build log shows the applied state and nothing depends on hook
-    # ordering inside pacstrap. Idempotent by construction.
+    # ordering inside pacstrap. Idempotent by construction. AFTER the proc
+    # bind above: chroot execs need /proc/self/exe under Rosetta.
     chroot "$chroot" /usr/share/archmage/branding/apply-branding.sh
 fi
 
@@ -704,7 +725,7 @@ fi
 [ "$fails" -eq 0 ] || exit 1
 
 # ---- unmount and dd-assemble the final GPT image ----
-umount "$mnt/dev" "$mnt/proc" "$mnt/sys" 2>/dev/null || true
+umount "$mnt/proc" "$mnt/dev" 2>/dev/null || true
 umount "$mnt/$ESP_MNT" "$mnt/.snapshots" "$mnt/var" "$mnt" 2>/dev/null || true
 losetup -d "$ESP_LOOP" "$ROOT_LOOP" 2>/dev/null || true
 trap - EXIT INT TERM
