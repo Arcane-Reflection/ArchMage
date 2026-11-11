@@ -44,8 +44,13 @@ pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf imagemagick
 pmark "toolchain ready (qemu $(qemu-system-x86_64 --version | head -1 | awk '{print $3, $4}'))"
 
 # ---- OVMF (Arch edk2-ovmf layout) ------------------------------------------
-OVMF_CODE="$(ls /usr/share/edk2-ovmf/x64/OVMF_CODE.fd 2>/dev/null || true)"
-OVMF_VARS_SRC="$(ls /usr/share/edk2-ovmf/x64/OVMF_VARS.fd 2>/dev/null || true)"
+# Arch ships the 4M flash variants (OVMF_CODE.4m.fd / OVMF_VARS.4m.fd) —
+# the first container round died on the non-4m glob, and its directory
+# annotation listed the real names (instrumentation paying off).
+OVMF_CODE="$(ls /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
+                 /usr/share/edk2-ovmf/x64/OVMF_CODE.fd 2>/dev/null | head -1 || true)"
+OVMF_VARS_SRC="$(ls /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd \
+                    /usr/share/edk2-ovmf/x64/OVMF_VARS.fd 2>/dev/null | head -1 || true)"
 [ -n "$OVMF_CODE" ] && [ -n "$OVMF_VARS_SRC" ] || {
     echo "::error::edk2-ovmf files missing — /usr/share/edk2-ovmf contents:"
     ls -R /usr/share/edk2-ovmf 2>/dev/null || true
