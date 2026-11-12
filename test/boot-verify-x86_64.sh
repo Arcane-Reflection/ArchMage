@@ -112,7 +112,7 @@ def screendump(path):
     return False
 
 shots = []
-for i in range(20):  # 20 x 30s = 10 min settle window (TCG boot is slow)
+for i in range(26):  # 26 x 30s = 13.5 min settle window (TCG boot is slow)
     time.sleep(60 if not shots else 30)
     path = f'/w/boot-out/shot-{i:02d}.png'
     if screendump(path):
@@ -122,29 +122,57 @@ for i in range(20):  # 20 x 30s = 10 min settle window (TCG boot is slow)
 if not shots:
     print('::error::no screendump succeeded')
     sys.exit(1)
+
+# Per-shot mean luminance sequence as ONE notice: all-black throughout = boot
+# hang; a rise = the framebuffer reached a real renderer. Tokyo Night (the
+# whole Omarchy theme) is DARK — a correct desktop frame can mean <2/255, so
+# this sequence is the diagnostic, the mean alone is not.
+import subprocess
+means = []
+for p in shots:
+    try:
+        m = subprocess.run(['convert', p, '-colorspace', 'Gray',
+                            '-format', '%[fx:mean*255]', 'info:'],
+                           capture_output=True, text=True, timeout=120).stdout.strip()
+        means.append(m.splitlines()[0] if m else '0')
+    except Exception:
+        means.append('ERR')
+seq = ' '.join(f'{i:02d}={v}' for i, v in enumerate(means))
+print(f'::notice::luminance sequence: {seq}')
 PYEOF
 pmark "screens captured"
 
-# ---- non-black gate ---------------------------------------------------------
+# ---- evidence FIRST (upload step runs even on gate failure: if: always()) ---
+mkdir -p /w/desktop-boot-screens
+ls -t "$OUT"/shot-*.png | head -3 | while read -r p; do cp "$p" /w/desktop-boot-screens/; done
+tail -n 80 "$OUT/serial.log" > /w/desktop-boot-screens/serial-tail.log 2>/dev/null || true
+
+# ---- render gate: bright-pixel fraction OR mean (dark-theme aware) ----------
+# Tokyo Night is dark; a correct SDDM/Hyprland frame has few but REAL bright
+# pixels (text, bar, window edges). Pass when mean >= 2/255 OR >0.2% of
+# pixels exceed luminance 40. A hung/black frame has ~none of either.
 LAST="$(ls -t "$OUT"/shot-*.png | head -1)"
+# Fraction of bright pixels: threshold at ~40/255 then 1-mean (the fx
+# 'mean>0.157' form evaluates once on the whole-image mean, not per pixel).
+BRIGHT_FRAC="$(convert "$LAST" -colorspace Gray -threshold 16% -format "%[fx:1-mean]" info: 2>/dev/null || echo 0)"
 MEAN="$(convert "$LAST" -colorspace Gray -format "%[fx:mean*255]" info: 2>/dev/null || echo 0)"
-echo "final frame: $LAST (mean luminance $MEAN)"
-python3 -c "
-mean = float('$MEAN')
-if mean < 2.0:
-    print('::error::final frame is (near-)black: mean luminance %.1f < 2.0' % mean)
+BRIGHT_PCT="$(python3 -c "print(round(float('$BRIGHT_FRAC' or 0)*100, 3))")"
+echo "final frame: $LAST (mean luminance $MEAN, bright(>40) pixels ${BRIGHT_PCT}%)"
+python3 - <<PYEOF
+import sys
+mean = float('$MEAN' or 0)
+bright = float('$BRIGHT_PCT' or 0)
+if mean < 2.0 and bright < 0.2:
+    print('::error::final frame is (near-)black: mean %.1f/255, bright pixels %.3f%%'
+          % (mean, bright))
     sys.exit(1)
-print('boot render OK: mean luminance %.1f / 255' % mean)
-"
+print('boot render OK: mean %.1f/255, bright pixels %.3f%%' % (mean, bright))
+PYEOF
 pmark "non-black gate passed"
 
-# ---- evidence ---------------------------------------------------------------
-mkdir -p /w/desktop-boot-screens
-ls -t "$OUT"/shot-*.png | head -2 | while read -r p; do cp "$p" /w/desktop-boot-screens/; done
-tail -n 60 "$OUT/serial.log" > /w/desktop-boot-screens/serial-tail.log 2>/dev/null || true
 {
     echo "ArchMage desktop boot verification (D-0.3)"
-    echo "frame: $(basename "$LAST") — mean luminance $MEAN/255 (non-black gate passed)"
+    echo "frame: $(basename "$LAST") — mean $MEAN/255, bright(>40) ${BRIGHT_PCT}% (render gate passed)"
     echo "chain: OVMF -> limine fallback EFI -> linux-omarchy -> SDDM autologin -> Hyprland"
 } > /w/desktop-boot-screens/BOOT-VERIFY.txt
 cat /w/desktop-boot-screens/BOOT-VERIFY.txt

@@ -561,7 +561,10 @@ jobs:
             bash test/boot-verify-x86_64.sh
 
       - name: Upload boot screenshots
-        # v7.0.1
+        # v7.0.1 — if: always(): a FAILED render gate is exactly when the
+        # frames are needed for diagnosis (script copies evidence before
+        # evaluating the gate).
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: desktop-boot-screens
