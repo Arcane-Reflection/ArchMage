@@ -71,11 +71,11 @@ pmark "image: $(basename "$IMG") ($(du -h "$IMG" | cut -f1))"
 qemu-system-x86_64 \
     -accel tcg,thread=multi \
     -machine q35 -m 4096 -smp 4 \
-    -device virtio-vga-gl \
+    -device virtio-gpu-gl \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
     -drive file="$IMG",format=raw,media=disk \
-    -display none -no-reboot \
+    -display egl-headless -no-reboot \
     -serial "file:$OUT/serial.log" \
     -qmp unix:/tmp/qmp.sock,server,nowait &
 QEMU_PID=$!
