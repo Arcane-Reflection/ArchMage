@@ -147,6 +147,20 @@ mkdir -p /w/desktop-boot-screens
 ls -t "$OUT"/shot-*.png | head -3 | while read -r p; do cp "$p" /w/desktop-boot-screens/; done
 tail -n 80 "$OUT/serial.log" > /w/desktop-boot-screens/serial-tail.log 2>/dev/null || true
 
+# ---- honesty gate: emergency shell detection (serial tells the truth) ------
+# Run 43095224105 lesson: the bright-pixel check PASSED on an initramfs
+# EMERGENCY SHELL — white-on-black text satisfies any bright-pixel
+# heuristic. An initramfs root-mount failure prints these strings verbatim
+# on serial; if they appear, the render gate must not run at all.
+if grep -aqE "emergency shell|Failed to mount" "$OUT/serial.log" 2>/dev/null; then
+    echo "::error::boot dropped to emergency shell (initramfs root-mount failure)"
+    grep -aE "emergency shell|Failed to mount" "$OUT/serial.log" | head -2 \
+        | cut -c1-100 | awk '{printf "::error::serial: %s%%0A", $0}' | sed 's/%0A$/\n/' >&2 || true
+    printf '\n' >&2
+    exit 1
+fi
+pmark "no emergency shell in serial — root mounted"
+
 # ---- render gate: bright-pixel fraction OR mean (dark-theme aware) ----------
 # Tokyo Night is dark; a correct SDDM/Hyprland frame has few but REAL bright
 # pixels (text, bar, window edges). Pass when mean >= 2/255 OR >0.2% of

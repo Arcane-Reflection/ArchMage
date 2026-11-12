@@ -531,11 +531,23 @@ ENV
 User=archmage
 Session=archmage.desktop
 AUTOLOGIN
-        # kernel cmdline for limine entries: the tool reads /etc/kernel/
-        # cmdline in a chroot (it skips /proc/cmdline there) — device-
-        # critical part here, omarchy-defaults.conf adds quiet splash etc.
-        mkdir -p /etc/kernel
+        # kernel cmdline for limine entries. TWO sources, belt and braces:
+        # - /etc/kernel/cmdline (the documented chroot fallback of the tool)
+        # - a limine-entry-tool.d drop-in: the entry generator assembles
+        #   cmdline from the KERNEL_CMDLINE[default]+= drop-in chain and
+        #   (observed on CI, run 43095224105 screenshot) did NOT consult
+        #   /etc/kernel/cmdline — the entry shipped with NO root= and the
+        #   initramfs dropped to an emergency shell (Failed to mount an
+        #   empty device on real root). Our drop-in sorts before
+        #   omarchy-defaults.conf; both use += so both land in the cmdline.
+        mkdir -p /etc/kernel /etc/limine-entry-tool.d
         printf "root=LABEL=archmage-desktop rootflags=subvol=@ rw\n" > /etc/kernel/cmdline
+        cat > /etc/limine-entry-tool.d/10-archmage-root.conf <<ROOTCONF
+# ArchMage root device (desktop-x86_64.sh): btrfs @ subvolume by label.
+KERNEL_CMDLINE[default]+=" root=LABEL=archmage-desktop rootflags=subvol=@ rw"
+ROOTCONF
+        # gate-checked below: the drop-in must exist and carry the root=
+        grep -q "root=LABEL=archmage-desktop" /etc/limine-entry-tool.d/10-archmage-root.conf
         # /etc/default/limine overrides upstream drop-ins (lowest->highest:
         # usr/share, /etc/limine-entry-tool.conf, /etc/limine-entry-tool.d/,
         # /etc/default/limine): pin the ESP and keep regular kernel entries —
