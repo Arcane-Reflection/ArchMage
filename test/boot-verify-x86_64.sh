@@ -41,7 +41,7 @@ printf '%s\n' \
     'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
     > /etc/pacman.d/mirrorlist
 pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf imagemagick \
-    virglrenderer mesa
+    virglrenderer mesa openssh
 pmark "toolchain ready (qemu $(qemu-system-x86_64 --version | head -1 | awk '{print $3, $4}'))"
 
 # ---- OVMF (Arch edk2-ovmf layout) ------------------------------------------
@@ -81,6 +81,8 @@ start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
         -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
         -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
         -drive file="$IMG",format=raw,media=disk \
+        -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
+        -device virtio-net-pci \
         -no-reboot \
         -serial "file:$OUT/serial.log" \
         -qmp unix:/tmp/qmp.sock,server,nowait \
@@ -211,6 +213,42 @@ changed = post and lum(post[-1]) != lum(shots[-1])
 print(f'::notice::login outcome: {"FRAME CHANGED — session/unlock took over" if changed else "no frame change — surface stayed (login failed or session static)"}')
 PYEOF
 pmark "screens captured"
+
+# ---- SSH diagnostic channel (definitive, not screen-guessing) ---------------
+# The image ships sshd + this build's public key (host:2222 -> guest:22).
+# loginctl tells us whether the USER session exists (autologin fired) or
+# only the greeter — and if autologin failed, the sddm journal explains why.
+SSH_KEY=/w/desktop-image-in/ssh_key
+SSHOPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+         -o ConnectTimeout=8 -o BatchMode=yes -i "$SSH_KEY" -p 2222)
+chmod 600 "$SSH_KEY" 2>/dev/null || true
+SSH_OUT=/w/desktop-boot-screens/ssh-diagnosis.txt
+: > "$SSH_OUT"
+for i in $(seq 1 12); do
+    if ssh "${SSHOPTS[@]}" root@127.0.0.1 true 2>/dev/null; then
+        {
+            echo "=== sessions (loginctl) ==="
+            ssh "${SSHOPTS[@]}" root@127.0.0.1 \
+                'loginctl list-sessions --no-legend 2>/dev/null; true'
+            echo "=== user session detail ==="
+            ssh "${SSHOPTS[@]}" root@127.0.0.1 \
+                'for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk "{print \$1}"); do loginctl show-session "$s" -p Name -p Type -p State -p Desktop 2>/dev/null; done; true'
+            echo "=== sddm journal tail ==="
+            ssh "${SSHOPTS[@]}" root@127.0.0.1 \
+                'journalctl -u sddm --no-pager -n 25 2>/dev/null | tail -25; true'
+            echo "=== graphical target ==="
+            ssh "${SSHOPTS[@]}" root@127.0.0.1 \
+                'systemctl is-active graphical.target; systemctl is-active sddm; true'
+        } > "$SSH_OUT" 2>/dev/null
+        sess="$(grep -c '' "$SSH_OUT" 2>/dev/null || echo 0)"
+        echo "::notice::SSH channel reached after boot — diagnosis written ($sess lines)"
+        cat "$SSH_OUT" >&2
+        break
+    fi
+    sleep 20
+done
+grep -q "===" "$SSH_OUT" 2>/dev/null || \
+    echo "::warning::SSH channel never reachable (network/sshd/key) — see console tail"
 
 # ---- evidence FIRST (upload step runs even on gate failure: if: always()) ---
 mkdir -p /w/desktop-boot-screens

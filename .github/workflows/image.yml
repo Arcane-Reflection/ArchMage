@@ -497,6 +497,11 @@ jobs:
           xz -T0 -1 -c "$img" > desktop-image-out/archmage-desktop-${build_date}.img.xz
           ( cd desktop-image-out && sha256sum archmage-desktop-${build_date}.img.xz \
               > archmage-desktop-${build_date}.img.xz.sha256 )
+          # per-build SSH keypair: PRIVATE key rides the (auth-gated) artifact
+          # for the boot-verify job; publish-nightly excludes it from the
+          # PUBLIC release.
+          cp test/build/desktop/ssh_key desktop-image-out/ssh_key
+          cp test/build/desktop/ssh_key.pub desktop-image-out/ssh_key.pub
           {
             echo "ArchMage desktop x86_64 image (Omarchy 4.5.x base)"
             echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
@@ -634,6 +639,10 @@ jobs:
           : > "$join_notes"
           for f in release-assets/op6/* release-assets/qemu-x86_64/* release-assets/desktop/* release-assets/desktop-boot/*; do
             [ -f "$f" ] || continue
+            # the per-build PRIVATE ssh key is artifact-private only — never
+            # publish it (dev-image tier ships password auth anyway, but a
+            # public key file would defeat that)
+            case "$(basename "$f")" in ssh_key|ssh_key.pub) continue ;; esac
             if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
               cp "$f" "$prepared/"
             else

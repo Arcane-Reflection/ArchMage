@@ -411,7 +411,7 @@ else
         base linux-omarchy linux-omarchy-headers linux-firmware \
         "omarchy=$OMARCHY_VERSION" \
         fastfetch fzf brightnessctl \
-        networkmanager ufw \
+        networkmanager ufw openssh \
         snapper snap-pac \
         archmage-desktop
 fi
@@ -524,6 +524,11 @@ ENV
         systemctl enable ufw.service
         systemctl enable fstrim.timer
         systemctl enable sddm.service
+        systemctl enable sshd.service
+        # dev-image SSH: key-based CI access (boot-verify channel); the
+        # per-build keypair is generated host-side below and wired in after
+        # this chroot script (needs the files at $chroot paths).
+        ufw allow 22/tcp
         # SDDM autologin into the branded uwsm-wrapped Hyprland session
         mkdir -p /etc/sddm.conf.d
         cat > /etc/sddm.conf.d/autologin.conf <<AUTOLOGIN
@@ -570,6 +575,19 @@ FSTAB
         pacman -Q archmage-branding >/dev/null
         echo "--- desktop chroot config complete ---"
     '
+    # dev-image SSH keypair (per build): authorized_keys for archmage + root
+    # ( PermitRootLogin prohibit-password is the Arch default — key-only),
+    # private key stays in the build dir for the boot-verify job (artifact-
+    # private; publish-nightly excludes it from the public release).
+    rm -f "$OUT_DIR/ssh_key" "$OUT_DIR/ssh_key.pub"
+    ssh-keygen -q -t ed25519 -N '' -C "archmage-desktop-build-$(date -u +%Y%m%d)" \
+        -f "$OUT_DIR/ssh_key"
+    install -d -m 700 "$chroot/home/archmage/.ssh" "$chroot/root/.ssh"
+    install -m 600 "$OUT_DIR/ssh_key.pub" "$chroot/home/archmage/.ssh/authorized_keys"
+    install -m 600 "$OUT_DIR/ssh_key.pub" "$chroot/root/.ssh/authorized_keys"
+    chroot "$chroot" chown -R archmage:archmage /home/archmage/.ssh
+    chmod 600 "$chroot/root/.ssh/authorized_keys"
+    info "per-build ssh keypair generated ($(ssh-keygen -lf "$OUT_DIR/ssh_key.pub" | awk '{print $2}'))"
 fi
 
 # ---- bootloader ----
