@@ -43,3 +43,20 @@ cache seeding (differential builds whose leaves are cache-only, never
 installed into the ephemeral container) and the in-loop install of freshly
 built packages.
 
+### boot-verify-x86_64.sh — D-0.3 boot verification (CI job context)
+
+`desktop-boot-verify` (image.yml) downloads the fresh desktop artifact and
+runs this script inside an archlinux:base-devel container: pacman installs
+qemu-system-x86 + edk2-ovmf + imagemagick (the proven pacman channel — the
+apt channel stalled on the ubuntu-26 runner migration), then QEMU boots the
+image headless: OVMF(4m) -> limine fallback EFI -> linux-omarchy -> SDDM
+autologin -> Hyprland. QMP screendumps run on a settle loop (first frame
+60s, then every 30s for ~10 min — TCG, no KVM on runners) and the gate is a
+non-black final frame (mean luminance >= 2/255, the D-0.3 grim-nonblack
+contract measured from outside the VM). Frames + serial tail ship as the
+desktop-boot-screens artifact and ride the nightly release.
+
+Two archlinux-specific notes: edk2-ovmf ships only the 4M flash variants
+(`/usr/share/edk2-ovmf/x64/OVMF_{CODE,VARS}.4m.fd`), and qemu runs with
+`-accel tcg,thread=multi` since hosted runners expose no KVM.
+
