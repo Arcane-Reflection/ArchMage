@@ -65,21 +65,45 @@ IMG="$(ls /w/desktop-image-in/archmage-desktop-*.img | head -1)"
 pmark "image: $(basename "$IMG") ($(du -h "$IMG" | cut -f1))"
 
 # ---- boot + settle-loop screenshots ----------------------------------------
-# Plain q35 AHCI (no virtio): omarchy's busybox-HOOKS initramfs guarantees
-# ahci, not virtio_blk. TCG explicit (no KVM on runners). Screendumps via
-# native QMP (format=png, qemu >= 7.1).
-qemu-system-x86_64 \
-    -accel tcg,thread=multi \
-    -machine q35 -m 4096 -smp 4 \
-    -device virtio-gpu-gl \
-    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-    -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
-    -drive file="$IMG",format=raw,media=disk \
-    -display egl-headless -no-reboot \
-    -serial "file:$OUT/serial.log" \
-    -qmp unix:/tmp/qmp.sock,server,nowait &
-QEMU_PID=$!
-pmark "qemu booting (pid $QEMU_PID)"
+# Plain q35 AHCI (no virtio storage): omarchy's busybox-HOOKS initramfs
+# guarantees ahci, not virtio_blk. TCG explicit (no KVM on runners).
+# GPU: prefer virtio-gpu-gl (virgl -> Hyprland gets EGL/GBM) with -display
+# none (qemu >= 7.1 creates a headless GL context internally; Arch's qemu 11
+# build does NOT ship the egl-headless display module — observed live). If
+# the GL variant dies at startup on this qemu build, degrade to the default
+# VGA with a warning annotation — the run still produces boot evidence.
+QEMU_LOG="$OUT/qemu-start.log"
+start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
+    rm -f /tmp/qmp.sock
+    qemu-system-x86_64 \
+        -accel tcg,thread=multi \
+        -machine q35 -m 4096 -smp 4 \
+        -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+        -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
+        -drive file="$IMG",format=raw,media=disk \
+        -no-reboot \
+        -serial "file:$OUT/serial.log" \
+        -qmp unix:/tmp/qmp.sock,server,nowait \
+        "$@" > "$QEMU_LOG" 2>&1 &
+    local pid=$!
+    sleep 6
+    kill -0 "$pid" 2>/dev/null || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; echo ""; return 1; }
+    echo "$pid"
+}
+
+QEMU_PID=""
+for attempt in "-device virtio-gpu-gl -display none" "-display none"; do
+    # shellcheck disable=SC2086
+    if QEMU_PID="$(start_qemu $attempt)"; then
+        [ "$attempt" = "-display none" ] && \
+            printf '::warning::GL GPU variant unavailable — degraded to default VGA (software rendering)\n'
+        pmark "qemu booting (pid $QEMU_PID) gpu=[$attempt]"
+        break
+    fi
+    printf '::warning::qemu variant [%s] failed to start:\n' "$attempt" >&2
+    tail -n 3 "$QEMU_LOG" | sed 's/^/  | /' >&2
+done
+[ -n "$QEMU_PID" ] || { echo "::error::no qemu variant could start"; tail -n 5 "$QEMU_LOG" >&2; exit 1; }
 
 python3 - <<'PYEOF'
 import json, socket, sys, time
