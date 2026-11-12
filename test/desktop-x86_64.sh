@@ -167,7 +167,7 @@ fi
 # (libssl.so.3 gone, run 42799345601). Upgrade EVERYTHING in one
 # transaction so the throwaway container is ABI-consistent.
 pacman -Syu --noconfirm --needed arch-install-scripts btrfs-progs dosfstools \
-    e2fsprogs gnupg jq sudo github-cli
+    e2fsprogs gnupg jq sudo github-cli openssh
 pmark "container toolchain ready"
 
 # ---- mode constants ---------------------------------------------------------
