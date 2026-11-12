@@ -40,7 +40,8 @@ printf '%s\n' \
     'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
     'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
     > /etc/pacman.d/mirrorlist
-pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf imagemagick
+pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf imagemagick \
+    virglrenderer mesa
 pmark "toolchain ready (qemu $(qemu-system-x86_64 --version | head -1 | awk '{print $3, $4}'))"
 
 # ---- OVMF (Arch edk2-ovmf layout) ------------------------------------------
@@ -70,6 +71,7 @@ pmark "image: $(basename "$IMG") ($(du -h "$IMG" | cut -f1))"
 qemu-system-x86_64 \
     -accel tcg,thread=multi \
     -machine q35 -m 4096 -smp 4 \
+    -device virtio-vga-gl \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
     -drive file="$IMG",format=raw,media=disk \
@@ -111,6 +113,19 @@ def screendump(path):
             return False
     return False
 
+def sendkey(key):
+    f.write(json.dumps({'execute': 'human-monitor-command',
+                        'arguments': {'command-line': f'sendkey {key}'}}).encode() + b'\n'); f.flush()
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        msg = readmsg()
+        if 'return' in msg:
+            return True
+        if 'error' in msg:
+            print('sendkey error:', msg['error'])
+            return False
+    return False
+
 shots = []
 for i in range(26):  # 26 x 30s = 13.5 min settle window (TCG boot is slow)
     time.sleep(60 if not shots else 30)
@@ -123,28 +138,63 @@ if not shots:
     print('::error::no screendump succeeded')
     sys.exit(1)
 
-# Per-shot mean luminance sequence as ONE notice: all-black throughout = boot
-# hang; a rise = the framebuffer reached a real renderer. Tokyo Night (the
-# whole Omarchy theme) is DARK — a correct desktop frame can mean <2/255, so
-# this sequence is the diagnostic, the mean alone is not.
+PRE_COUNT = len(shots)
+
+# ---- automated login (user asked: 你来登录密码) -----------------------------
+# The dev-image password convention is archmage:1234. Whatever surface holds
+# the keyboard (SDDM greeter password field or hyprlock), typing the
+# password + Enter either enters the session or unlocks it; the post-login
+# frame sequence is the evidence (a session taking over changes the
+# framebuffer; a still-locked/greeter frame stays identical).
+f.write(json.dumps({'execute': 'stop'}).encode() + b'\n'); f.flush()
+while 'return' not in readmsg():
+    pass
+for key in ('1', '2', '3', '4', 'ret'):
+    if not sendkey(key):
+        print(f'::warning::sendkey {key} failed')
+    time.sleep(0.25)
+f.write(json.dumps({'execute': 'cont'}).encode() + b'\n'); f.flush()
+while 'return' not in readmsg():
+    pass
+print('::notice::login keystrokes sent (1234+Enter)')
+
+post = []
+for i in range(8):  # 8 x 30s = 4 min post-login observation
+    time.sleep(30)
+    path = f'/w/boot-out/post-{i:02d}.png'
+    if screendump(path):
+        post.append(path)
+        print(f'post shot {i}: {path}')
+
+# Per-shot mean luminance sequences as ONE notice: pre-login (boot settle)
+# and post-login. All-black throughout = boot hang; identical pre/post = the
+# password surface stayed; a post-login change = a session took over.
 import subprocess
-means = []
-for p in shots:
+def lum(path):
     try:
-        m = subprocess.run(['convert', p, '-colorspace', 'Gray',
+        m = subprocess.run(['convert', path, '-colorspace', 'Gray',
                             '-format', '%[fx:mean*255]', 'info:'],
                            capture_output=True, text=True, timeout=120).stdout.strip()
-        means.append(m.splitlines()[0] if m else '0')
+        return m.splitlines()[0] if m else '0'
     except Exception:
-        means.append('ERR')
-seq = ' '.join(f'{i:02d}={v}' for i, v in enumerate(means))
-print(f'::notice::luminance sequence: {seq}')
+        return 'ERR'
+pre_seq = ' '.join(f'{i:02d}={lum(p)}' for i, p in enumerate(shots))
+post_seq = ' '.join(f'{i:02d}={lum(p)}' for i, p in enumerate(post))
+print(f'::notice::pre-login luminance: {pre_seq}')
+print(f'::notice::post-login luminance: {post_seq}')
+
+changed = post and lum(post[-1]) != lum(shots[-1])
+print(f'::notice::login outcome: {"FRAME CHANGED — session/unlock took over" if changed else "no frame change — surface stayed (login failed or session static)"}')
 PYEOF
 pmark "screens captured"
 
 # ---- evidence FIRST (upload step runs even on gate failure: if: always()) ---
 mkdir -p /w/desktop-boot-screens
-ls -t "$OUT"/shot-*.png | head -3 | while read -r p; do cp "$p" /w/desktop-boot-screens/; done
+# last pre-login frame + last post-login frame (the pair that shows whether
+# the session took over) + first post frame
+[ -f "$OUT/post-07.png" ] && cp "$OUT/post-07.png" /w/desktop-boot-screens/
+[ -f "$OUT/post-00.png" ] && cp "$OUT/post-00.png" /w/desktop-boot-screens/
+ls -t "$OUT"/shot-*.png | head -1 | while read -r p; do cp "$p" /w/desktop-boot-screens/; done
 tail -n 80 "$OUT/serial.log" > /w/desktop-boot-screens/serial-tail.log 2>/dev/null || true
 
 # ---- honesty gate: emergency shell detection (serial tells the truth) ------
@@ -165,7 +215,8 @@ pmark "no emergency shell in serial — root mounted"
 # Tokyo Night is dark; a correct SDDM/Hyprland frame has few but REAL bright
 # pixels (text, bar, window edges). Pass when mean >= 2/255 OR >0.2% of
 # pixels exceed luminance 40. A hung/black frame has ~none of either.
-LAST="$(ls -t "$OUT"/shot-*.png | head -1)"
+LAST="$(ls -t "$OUT"/post-*.png 2>/dev/null | head -1)"
+[ -n "$LAST" ] || LAST="$(ls -t "$OUT"/shot-*.png | head -1)"
 # Fraction of bright pixels: threshold at ~40/255 then 1-mean (the fx
 # 'mean>0.157' form evaluates once on the whole-image mean, not per pixel).
 BRIGHT_FRAC="$(convert "$LAST" -colorspace Gray -threshold 16% -format "%[fx:1-mean]" info: 2>/dev/null || echo 0)"
