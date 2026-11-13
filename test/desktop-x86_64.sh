@@ -587,6 +587,16 @@ FSTAB
     install -m 600 "$OUT_DIR/ssh_key.pub" "$chroot/root/.ssh/authorized_keys"
     chroot "$chroot" chown -R archmage:archmage /home/archmage/.ssh
     chmod 600 "$chroot/root/.ssh/authorized_keys"
+    # The packaging step runs as the RUNNER user on the bind mount; the key
+    # files were created by container root (0600 root:root = unreadable out
+    # here — the packaging cp died on exactly that). Hand them to the owner
+    # of the workspace root; the private key keeps its 0600 mode under its
+    # new owner.
+    key_uid="$(stat -c %u "$REPO_ROOT")"
+    key_gid="$(stat -c %g "$REPO_ROOT")"
+    chown "$key_uid:$key_gid" "$OUT_DIR/ssh_key" "$OUT_DIR/ssh_key.pub"
+    chmod 600 "$OUT_DIR/ssh_key"
+    chmod 644 "$OUT_DIR/ssh_key.pub"
     info "per-build ssh keypair generated ($(ssh-keygen -lf "$OUT_DIR/ssh_key.pub" | awk '{print $2}'))"
 fi
 

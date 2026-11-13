@@ -500,8 +500,10 @@ jobs:
           # per-build SSH keypair: PRIVATE key rides the (auth-gated) artifact
           # for the boot-verify job; publish-nightly excludes it from the
           # PUBLIC release.
-          cp test/build/desktop/ssh_key desktop-image-out/ssh_key
-          cp test/build/desktop/ssh_key.pub desktop-image-out/ssh_key.pub
+          cp test/build/desktop/ssh_key desktop-image-out/ssh_key \
+            || { echo "::error::ssh_key missing/unreadable:"; ls -la test/build/desktop/ssh_key* 2>&1; exit 1; }
+          cp test/build/desktop/ssh_key.pub desktop-image-out/ssh_key.pub \
+            || { echo "::error::ssh_key.pub missing/unreadable:"; ls -la test/build/desktop/ssh_key* 2>&1; exit 1; }
           {
             echo "ArchMage desktop x86_64 image (Omarchy 4.5.x base)"
             echo "Built from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
