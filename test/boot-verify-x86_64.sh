@@ -40,8 +40,8 @@ printf '%s\n' \
     'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' \
     'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' \
     > /etc/pacman.d/mirrorlist
-pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf imagemagick \
-    virglrenderer mesa openssh
+pacman -Syu --noconfirm --needed qemu-system-x86 edk2-ovmf openssh \
+    virglrenderer mesa python
 pmark "toolchain ready (qemu $(qemu-system-x86_64 --version | head -1 | awk '{print $3, $4}'))"
 
 # ---- OVMF (Arch edk2-ovmf layout) ------------------------------------------
@@ -73,6 +73,66 @@ pmark "image: $(basename "$IMG") ($(du -h "$IMG" | cut -f1))"
 # the GL variant dies at startup on this qemu build, degrade to the default
 # VGA with a warning annotation — the run still produces boot evidence.
 QEMU_LOG="$OUT/qemu-start.log"
+# stdlib PNG luminance decoder shared by the python blocks (the container's
+# ImageMagick mis-measures — see the render-gate note below).
+cat > "$OUT/png_lum.py" <<'PYEOF'
+import struct, zlib
+
+def png_mean_and_bright(path):
+    data = open(path, 'rb').read()
+    pos = 8
+    w = h = None
+    ctype = 2
+    idat = b''
+    while pos < len(data):
+        ln = struct.unpack('>I', data[pos:pos+4])[0]
+        ctyp = data[pos+4:pos+8]
+        payload = data[pos+8:pos+8+ln]
+        if ctyp == b'IHDR':
+            w, h, bd, ctype = struct.unpack('>IIBB', payload[:10])
+        elif ctyp == b'IDAT':
+            idat += payload
+        pos += 12 + ln
+    raw = zlib.decompress(idat)
+    ch = 3 if ctype == 2 else 4
+    stride = w * ch
+    prev = bytearray(stride)
+    total = 0.0
+    bright = 0
+    cnt = 0
+    off = 0
+    for _y in range(h):
+        ft = raw[off]
+        line = bytearray(raw[off+1:off+1+stride])
+        off += 1 + stride
+        if ft == 1:
+            for i in range(ch, stride):
+                line[i] = (line[i] + line[i-ch]) & 255
+        elif ft == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 255
+        elif ft == 3:
+            for i in range(stride):
+                a = line[i-ch] if i >= ch else 0
+                line[i] = (line[i] + ((a + prev[i]) >> 1)) & 255
+        elif ft == 4:
+            for i in range(stride):
+                a = line[i-ch] if i >= ch else 0
+                b = prev[i]
+                c = prev[i-ch] if i >= ch else 0
+                p = a + b - c
+                pa, pb, pc = abs(p-a), abs(p-b), abs(p-c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else (b if pb <= pc else c))) & 255
+        prev = line
+        for px in range(w):
+            r, g, b = line[px*ch], line[px*ch+1], line[px*ch+2]
+            luma = 0.299*r + 0.587*g + 0.114*b
+            total += luma
+            if luma > 40:
+                bright += 1
+            cnt += 1
+    return (total / cnt if cnt else 0.0), (bright * 100.0 / cnt if cnt else 0.0)
+PYEOF
 start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
     rm -f /tmp/qmp.sock
     qemu-system-x86_64 \
@@ -195,21 +255,21 @@ for i in range(8):  # 8 x 30s = 4 min post-login observation
 # Per-shot mean luminance sequences as ONE notice: pre-login (boot settle)
 # and post-login. All-black throughout = boot hang; identical pre/post = the
 # password surface stayed; a post-login change = a session took over.
-import subprocess
-def lum(path):
-    try:
-        m = subprocess.run(['convert', path, '-colorspace', 'Gray',
-                            '-format', '%[fx:mean*255]', 'info:'],
-                           capture_output=True, text=True, timeout=120).stdout.strip()
-        return m.splitlines()[0] if m else '0'
-    except Exception:
-        return 'ERR'
-pre_seq = ' '.join(f'{i:02d}={lum(p)}' for i, p in enumerate(shots))
-post_seq = ' '.join(f'{i:02d}={lum(p)}' for i, p in enumerate(post))
+# Measured with the stdlib decoder (png_lum.py): the CI container's
+# ImageMagick reported 0.2/255 for a frame that decodes at 59.9 (run
+# 43336805631 vs local) — never trust it for the gate.
+import sys
+sys.path.insert(0, '/w/boot-out')
+from png_lum import png_mean_and_bright
+
+pre_seq = ' '.join(f'{i:02d}={png_mean_and_bright(p)[0]:.1f}' for i, p in enumerate(shots))
+post_seq = ' '.join(f'{i:02d}={png_mean_and_bright(p)[0]:.1f}' for i, p in enumerate(post))
 print(f'::notice::pre-login luminance: {pre_seq}')
 print(f'::notice::post-login luminance: {post_seq}')
 
-changed = post and lum(post[-1]) != lum(shots[-1])
+last_pre = png_mean_and_bright(shots[-1])
+last_post = png_mean_and_bright(post[-1]) if post else last_pre
+changed = post and (last_post[0] != last_pre[0] or last_post[1] != last_pre[1])
 print(f'::notice::login outcome: {"FRAME CHANGED — session/unlock took over" if changed else "no frame change — surface stayed (login failed or session static)"}')
 PYEOF
 pmark "screens captured"
@@ -274,17 +334,23 @@ if grep -aqE "emergency shell|Failed to mount" "$OUT/serial.log" 2>/dev/null; th
 fi
 pmark "no emergency shell in serial — root mounted"
 
-# ---- render gate: bright-pixel fraction OR mean (dark-theme aware) ----------
+# ---- render gate: python-decoded truth (dark-theme aware) -------------------
 # Tokyo Night is dark; a correct SDDM/Hyprland frame has few but REAL bright
 # pixels (text, bar, window edges). Pass when mean >= 2/255 OR >0.2% of
-# pixels exceed luminance 40. A hung/black frame has ~none of either.
+# pixels exceed luminance 40. Measured with the stdlib decoder above — the
+# container's ImageMagick reported 0.2/255 for a 59.9 frame (run 43336805631
+# vs a local decode of the same PNG), so the gate must not trust it.
 LAST="$(ls -t "$OUT"/post-*.png 2>/dev/null | head -1)"
 [ -n "$LAST" ] || LAST="$(ls -t "$OUT"/shot-*.png | head -1)"
-# Fraction of bright pixels: threshold at ~40/255 then 1-mean (the fx
-# 'mean>0.157' form evaluates once on the whole-image mean, not per pixel).
-BRIGHT_FRAC="$(convert "$LAST" -colorspace Gray -threshold 16% -format "%[fx:1-mean]" info: 2>/dev/null || echo 0)"
-MEAN="$(convert "$LAST" -colorspace Gray -format "%[fx:mean*255]" info: 2>/dev/null || echo 0)"
-BRIGHT_PCT="$(python3 -c "print(round(float('$BRIGHT_FRAC' or 0)*100, 3))")"
+MEAN_BRIGHT="$(python3 -c "
+import sys
+sys.path.insert(0, '/w/boot-out')
+from png_lum import png_mean_and_bright
+m, b = png_mean_and_bright('$LAST')
+print(f'{m:.3f} {b:.3f}')
+" 2>/dev/null || echo "0 0")"
+MEAN="$(echo "$MEAN_BRIGHT" | awk '{print $1}')"
+BRIGHT_PCT="$(echo "$MEAN_BRIGHT" | awk '{print $2}')"
 echo "final frame: $LAST (mean luminance $MEAN, bright(>40) pixels ${BRIGHT_PCT}%)"
 python3 - <<PYEOF
 import sys

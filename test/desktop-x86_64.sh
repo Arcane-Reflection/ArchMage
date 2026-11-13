@@ -561,6 +561,12 @@ ROOTCONF
         cat > /etc/default/limine <<LIMINE
 ESP_PATH="/boot"
 ENABLE_UKI=no
+# Boot verification channel: the QEMU serial line carries the full
+# transcript (omarchy-defaults silences it with quiet + splash +
+# show_status=false; LAST instance of each param wins because this conf
+# loads after every drop-in). ttyS0 receives kernel+systemd output while
+# tty0 stays primary for the display.
+KERNEL_CMDLINE[default]+=" console=ttyS0,115200 console=tty0 systemd.show_status=1 loglevel=7"
 LIMINE
         # fstab: btrfs subvol mounts by label + the ESP at /boot (limine
         # entry updates write kernel files into the ESP on kernel upgrades)
