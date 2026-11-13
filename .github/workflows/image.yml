@@ -568,14 +568,18 @@ jobs:
             bash test/boot-verify-x86_64.sh
 
       - name: Upload boot screenshots
-        # v7.0.1 — if: always(): a FAILED render gate is exactly when the
-        # frames are needed for diagnosis (script copies evidence before
-        # evaluating the gate).
+        # v7.0.1 — if: always(): a FAILED gate or an early crash is exactly
+        # when the frames are needed for diagnosis. boot-out carries the
+        # FULL frame sequence (26 settle + 8 post-login) plus console,
+        # serial and qemu-start logs; desktop-boot-screens carries the
+        # curated evidence the script copied.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: desktop-boot-screens
-          path: desktop-boot-screens/
+          path: |
+            desktop-boot-screens/
+            boot-out/
           if-no-files-found: error
 
   publish-nightly:

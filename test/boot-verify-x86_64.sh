@@ -20,7 +20,7 @@
 set -Eeuo pipefail
 
 OUT=/w/boot-out
-mkdir -p "$OUT"
+mkdir -p "$OUT" /w/desktop-boot-screens
 exec > >(tee "$OUT/console.log") 2>&1
 on_err() {
     rc=$?
@@ -222,6 +222,7 @@ SSH_KEY=/w/desktop-image-in/ssh_key
 SSHOPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
          -o ConnectTimeout=8 -o BatchMode=yes -i "$SSH_KEY" -p 2222)
 chmod 600 "$SSH_KEY" 2>/dev/null || true
+mkdir -p /w/desktop-boot-screens
 SSH_OUT=/w/desktop-boot-screens/ssh-diagnosis.txt
 : > "$SSH_OUT"
 for i in $(seq 1 12); do
