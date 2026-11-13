@@ -548,8 +548,16 @@ AUTOLOGIN
         mkdir -p /etc/kernel /etc/limine-entry-tool.d
         printf "root=LABEL=archmage-desktop rootflags=subvol=@ rw\n" > /etc/kernel/cmdline
         cat > /etc/limine-entry-tool.d/10-archmage-root.conf <<ROOTCONF
-# ArchMage root device (desktop-x86_64.sh): btrfs @ subvolume by label.
+# ArchMage drop-in (desktop-x86_64.sh). Drop-ins load in REVERSE
+# alphabetical order after /etc/default/limine, and the LAST instance of a
+# kernel param wins — the alphabetically-first name (10-...) therefore
+# loads last and overrides omarchy-defaults.conf:
+#   root=      btrfs @ subvolume by label (boot-verified on CI)
+#   console=   ttyS0 carries the full boot transcript for the boot-verify
+#              job (omarchy-defaults silences the console with quiet/splash
+#              + show_status=false + loglevel=0 — the LAST instance wins)
 KERNEL_CMDLINE[default]+=" root=LABEL=archmage-desktop rootflags=subvol=@ rw"
+KERNEL_CMDLINE[default]+=" console=ttyS0,115200 console=tty0 systemd.show_status=1 loglevel=7"
 ROOTCONF
         # gate-checked below: the drop-in must exist and carry the root=
         grep -q "root=LABEL=archmage-desktop" /etc/limine-entry-tool.d/10-archmage-root.conf
@@ -561,12 +569,6 @@ ROOTCONF
         cat > /etc/default/limine <<LIMINE
 ESP_PATH="/boot"
 ENABLE_UKI=no
-# Boot verification channel: the QEMU serial line carries the full
-# transcript (omarchy-defaults silences it with quiet + splash +
-# show_status=false; LAST instance of each param wins because this conf
-# loads after every drop-in). ttyS0 receives kernel+systemd output while
-# tty0 stays primary for the display.
-KERNEL_CMDLINE[default]+=" console=ttyS0,115200 console=tty0 systemd.show_status=1 loglevel=7"
 LIMINE
         # fstab: btrfs subvol mounts by label + the ESP at /boot (limine
         # entry updates write kernel files into the ESP on kernel upgrades)
