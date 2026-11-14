@@ -60,3 +60,13 @@ Two archlinux-specific notes: edk2-ovmf ships only the 4M flash variants
 (`/usr/share/edk2-ovmf/x64/OVMF_{CODE,VARS}.4m.fd`), and qemu runs with
 `-accel tcg,thread=multi` since hosted runners expose no KVM.
 
+
+### Serial transcript (boot-verify)
+
+The image's kernel cmdline carries `console=ttyS0,115200 console=tty0
+systemd.show_status=1 loglevel=7` via `10-archmage-root.conf` — the
+alphabetically-first limine-entry-tool drop-in, which loads LAST (drop-ins
+are read in reverse alphabetical order after /etc/default/limine) and wins
+the last-instance-wins contest against omarchy-defaults' console
+silencing. serial.log in the boot evidence therefore carries the full
+systemd transcript.
