@@ -630,7 +630,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          # annotation trap: the publish step had no instrumentation and two
+          # consecutive failures died as bare exit 1
+          LOG="$GITHUB_WORKSPACE/publish-console.log"
+          exec > >(tee "$LOG") 2>&1
+          on_err() {
+            rc=$?
+            [ "$rc" -eq 0 ] && return 0
+            tail -n 15 "$LOG" | cut -c1-120 \
+              | awk '{printf "::error::%s%%0A", $0}'
+            printf '\n::error::publish failed rc=%s\n' "$rc" >&2
+          }
+          trap on_err EXIT
           today="$(date -u +%Y%m%d)"
           notes="$(printf 'ArchMage nightly images (auto-built %s)\n\nAssets: op6 (tier=device-pending: structure-verified, device boot pending 02-02/03), x86_64 QEMU (tier=qemu: CI-booted to SSH) and desktop (tier=boot-verified: OVMF -> limine -> SDDM autologin -> Hyprland, screenshot in desktop-boot-*). Verify with the .sha256 and .sig files — see README "镜像发布".' "$(date -u +%Y-%m-%d)")"
 
@@ -667,15 +679,24 @@ jobs:
             fi
           done
 
-          if gh release view "nightly-${today}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "nightly-${today}" "$prepared"/* \
-              --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "nightly-${today}" "$prepared"/* \
-              --prerelease --target "$GITHUB_SHA" \
-              --title "ArchMage nightly ${today}" \
-              --notes "$notes" --repo "$GITHUB_REPOSITORY"
-          fi
+          # Upload with retries: ~60 assets = ~60 sequential API calls, and
+          # GitHub secondary rate limits have failed this exact step twice
+          # mid-burst (bare exit 1, assets partially landed).
+          upload_ok=no
+          for attempt in 1 2 3; do
+            if gh release view "nightly-${today}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "nightly-${today}" "$prepared"/* \
+                --clobber --repo "$GITHUB_REPOSITORY" && upload_ok=yes && break
+            else
+              gh release create "nightly-${today}" "$prepared"/* \
+                --prerelease --target "$GITHUB_SHA" \
+                --title "ArchMage nightly ${today}" \
+                --notes "$notes" --repo "$GITHUB_REPOSITORY" && upload_ok=yes && break
+            fi
+            printf '::warning::release publish attempt %s failed — retrying in 60s\n' "$attempt"
+            sleep 60
+          done
+          [ "$upload_ok" = yes ] || die "release publish failed after 3 attempts (secondary rate limit?)"
 
           gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
           gh release create nightly "$prepared"/* \
