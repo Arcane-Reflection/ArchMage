@@ -142,7 +142,7 @@ start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
         -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
         -drive file="$IMG",format=raw,media=disk \
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
-        -device virtio-net-pci \
+        -device e1000 \
         -no-reboot \
         -chardev "socket,id=ser0,path=/tmp/serial.sock,server=on,wait=off,logfile=$OUT/serial.log" \
         -serial chardev:ser0 \
@@ -390,12 +390,19 @@ wait_for('DIAG-START', 20)
 CMDS = [
     'systemctl is-active sshd; systemctl is-enabled sshd',
     'ip -4 -o addr show | grep -v " lo "',
+    'ip link show | grep -E "^[0-9]+:"',
+    'lspci 2>/dev/null | grep -iE "net|eth" || echo "lspci unavailable"',
+    'dmesg 2>/dev/null | grep -iE "virtio|e1000" | head -6 || true',
     'systemctl is-active ufw; ufw status verbose 2>/dev/null | head -6',
     'ss -tlnp 2>/dev/null | grep -E ":22|:2222" || echo "nothing listening on :22"',
     'loginctl list-sessions --no-legend',
     'systemctl is-active graphical.target',
     'systemctl --failed --no-legend | head -5',
-    'journalctl -b -u sddm -u sshd --no-pager -n 12',
+    'ls /usr/share/wayland-sessions/',
+    'cat /etc/sddm.conf.d/autologin.conf 2>/dev/null || echo "autologin.conf MISSING"',
+    'journalctl -b -u sddm --no-pager -n 20 2>/dev/null | grep -iE "autologin|session|user" | head -8; true',
+    'journalctl -b -u NetworkManager --no-pager -n 12 2>/dev/null | tail -8',
+    'journalctl -b -u sshd --no-pager -n 8 2>/dev/null',
     'echo DIAG-END',
 ]
 for c in CMDS:
