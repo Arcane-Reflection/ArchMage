@@ -643,12 +643,19 @@ jobs:
           mkdir -p "$prepared"
           join_notes="$prepared/REJOIN-SPLIT-ASSETS.txt"
           : > "$join_notes"
-          for f in release-assets/op6/* release-assets/qemu-x86_64/* release-assets/desktop/* release-assets/desktop-boot/*; do
-            [ -f "$f" ] || continue
+          # desktop-boot/* contains nested artifact trees (desktop-boot-screens/
+          # + boot-out/) — walk FILES recursively; the old `for f in dir/*`
+          # + `-f` test silently skipped every nested file (screenshots and
+          # the serial transcript never reached the release).
+          while IFS= read -r -d '' f; do
             # the per-build PRIVATE ssh key is artifact-private only — never
             # publish it (dev-image tier ships password auth anyway, but a
-            # public key file would defeat that)
-            case "$(basename "$f")" in ssh_key|ssh_key.pub) continue ;; esac
+            # public key file would defeat that). OVMF_VARS.fd is the VM's
+            # firmware variable store — triage junk.
+            case "$(basename "$f")" in ssh_key|ssh_key.pub|OVMF_VARS.fd) continue ;; esac
+            printf '%s\0' "$f"
+          done < <(find release-assets/op6 release-assets/qemu-x86_64 release-assets/desktop release-assets/desktop-boot -type f -print0 2>/dev/null) | \
+          while IFS= read -r -d '' f; do
             if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
               cp "$f" "$prepared/"
             else
