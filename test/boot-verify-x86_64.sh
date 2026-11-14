@@ -142,7 +142,7 @@ start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
         -drive if=pflash,format=raw,file="$OUT/OVMF_VARS.fd" \
         -drive file="$IMG",format=raw,media=disk \
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
-        -device e1000 \
+        -device e1000,netdev=n0 \
         -no-reboot \
         -chardev "socket,id=ser0,path=/tmp/serial.sock,server=on,wait=off,logfile=$OUT/serial.log" \
         -serial chardev:ser0 \
