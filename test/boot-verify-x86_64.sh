@@ -18,6 +18,7 @@
 #   /w/desktop-boot-screens/  last two frames + serial tail + BOOT-VERIFY.txt
 #   /w/boot-out/              console log + all frames (triage)
 set -Eeuo pipefail
+export PYTHONDONTWRITEBYTECODE=1   # no __pycache__ in the evidence trees
 
 OUT=/w/boot-out
 mkdir -p "$OUT" /w/desktop-boot-screens

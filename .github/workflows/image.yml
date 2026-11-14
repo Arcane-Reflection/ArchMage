@@ -663,10 +663,15 @@ jobs:
             # the per-build PRIVATE ssh key is artifact-private only — never
             # publish it (dev-image tier ships password auth anyway, but a
             # public key file would defeat that). OVMF_VARS.fd is the VM's
-            # firmware variable store — triage junk.
-            case "$(basename "$f")" in ssh_key|ssh_key.pub|OVMF_VARS.fd) continue ;; esac
+            # firmware variable store — triage junk. EMPTY files make
+            # 'gh release upload' fail with HTTP 400 Bad Content-Length
+            # (run 43563147370: an unreachable-SSH round shipped
+            # ssh-diagnosis.txt as a 0-byte placeholder) — skip them, along
+            # with python bytecode caches.
+            case "$(basename "$f")" in ssh_key|ssh_key.pub|OVMF_VARS.fd|*.pyc) continue ;; esac
+            [ -s "$f" ] || continue
             printf '%s\0' "$f"
-          done < <(find release-assets/op6 release-assets/qemu-x86_64 release-assets/desktop release-assets/desktop-boot -type f -print0 2>/dev/null) | \
+          done < <(find release-assets/op6 release-assets/qemu-x86_64 release-assets/desktop release-assets/desktop-boot -type f -size +0 -print0 2>/dev/null) | \
           while IFS= read -r -d '' f; do
             if [ "$(stat -c%s "$f")" -le 1992294400 ]; then
               cp "$f" "$prepared/"
@@ -696,7 +701,10 @@ jobs:
             printf '::warning::release publish attempt %s failed — retrying in 60s\n' "$attempt"
             sleep 60
           done
-          [ "$upload_ok" = yes ] || die "release publish failed after 3 attempts (secondary rate limit?)"
+          [ "$upload_ok" = yes ] || {
+            echo '::error::release publish failed after 3 attempts (secondary rate limit?)'
+            exit 1
+          }
 
           gh release delete nightly --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
           gh release create nightly "$prepared"/* \
