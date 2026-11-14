@@ -144,7 +144,8 @@ start_qemu() {  # start_qemu <extra args...>  -> echoes pid, empty on failure
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
         -device virtio-net-pci \
         -no-reboot \
-        -serial "file:$OUT/serial.log" \
+        -chardev "socket,id=ser0,path=/tmp/serial.sock,server=on,wait=off,logfile=$OUT/serial.log" \
+        -serial chardev:ser0 \
         -qmp unix:/tmp/qmp.sock,server,nowait \
         "$@" > "$QEMU_LOG" 2>&1 &
     local pid=$!
@@ -309,7 +310,113 @@ for i in $(seq 1 12); do
     sleep 20
 done
 grep -q "===" "$SSH_OUT" 2>/dev/null || \
-    echo "::warning::SSH channel never reachable (network/sshd/key) — see console tail"
+    echo "::warning::SSH channel never reachable (network/sshd/key) — serial shell will diagnose"
+
+# ---- serial-shell diagnosis (root getty on ttyS0) ---------------------------
+# The serial line carries a getty ("archmage-desktop login:") once boot
+# completes; root has NO password in this image (never set in the chroot),
+# so an automated serial login gives a root shell for the definitive
+# diagnosis: service states, guest IP, ufw, and the sddm/sshd journals —
+# converting the SSH unreachability from a mystery into a symptom list.
+python3 - <<'PYEOF'
+import socket, sys, time
+
+try:
+    sock = socket.socket(socket.AF_UNIX)
+    sock.connect('/tmp/serial.sock')
+except OSError as e:
+    print(f'::warning::serial socket connect failed: {e}')
+    sys.exit(0)
+
+sock.settimeout(2)
+buf = b''
+log = open('/w/desktop-boot-screens/serial-session.log', 'wb')
+
+def pump(seconds):
+    global buf
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+            log.write(chunk)
+            log.flush()
+        except socket.timeout:
+            pass
+
+def wait_for(pattern, timeout):
+    global buf
+    end = time.time() + timeout
+    while time.time() < end:
+        if pattern in buf.decode('utf-8', 'replace'):
+            return True
+        try:
+            chunk = sock.recv(4096)
+            if chunk:
+                buf += chunk
+                log.write(chunk)
+                log.flush()
+        except socket.timeout:
+            pass
+    return pattern in buf.decode('utf-8', 'replace')
+
+def send(line):
+    sock.sendall(line.encode() + b'\n')
+
+pump(3)
+# wake the getty, then log in as root (no password set on this image)
+send('')
+time.sleep(1)
+send('')
+if not wait_for('login:', 30):
+    print('::warning::no serial login prompt within 30s — serial may be idle; retrying once')
+    send('\n')
+    if not wait_for('login:', 30):
+        print('::error::serial login prompt never appeared')
+        sys.exit(0)
+send('root')
+time.sleep(2)
+send('')
+if not wait_for('#', 30):
+    print('::warning::no root shell prompt detected — continuing blind')
+send('export PS1=SHELLREADY\\$\\ ; echo DIAG-START')
+wait_for('DIAG-START', 20)
+
+CMDS = [
+    'systemctl is-active sshd; systemctl is-enabled sshd',
+    'ip -4 -o addr show | grep -v " lo "',
+    'systemctl is-active ufw; ufw status verbose 2>/dev/null | head -6',
+    'ss -tlnp 2>/dev/null | grep -E ":22|:2222" || echo "nothing listening on :22"',
+    'loginctl list-sessions --no-legend',
+    'systemctl is-active graphical.target',
+    'systemctl --failed --no-legend | head -5',
+    'journalctl -b -u sddm -u sshd --no-pager -n 12',
+    'echo DIAG-END',
+]
+for c in CMDS:
+    send(c)
+    time.sleep(1.5)
+    pump(2)
+
+# everything since DIAG-START is now in serial-session.log
+send('clear')
+pump(1)
+log.close()
+print('::notice::serial-shell diagnosis captured — serial-session.log in evidence')
+PYEOF
+if [ -f /w/desktop-boot-screens/serial-session.log ]; then
+    if /usr/bin/grep -aq "DIAG-END" /w/desktop-boot-screens/serial-session.log 2>/dev/null; then
+        pmark "serial shell diagnosis complete (DIAG-END reached)"
+    else
+        echo "::warning::serial diagnosis incomplete (DIAG-END not reached)"
+    fi
+    # human-readable filter of the diagnosis block
+    tr -d '\r' < /w/desktop-boot-screens/serial-session.log \
+        | /usr/bin/grep -aA1 -E "DIAG-START|active|inactive|failed|inet |loginctl|Session|sshd|ufw" \
+        | tail -40 > /w/desktop-boot-screens/serial-diagnosis-summary.txt 2>/dev/null || true
+fi
 
 # ---- evidence FIRST (upload step runs even on gate failure: if: always()) ---
 mkdir -p /w/desktop-boot-screens
