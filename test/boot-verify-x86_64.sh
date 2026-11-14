@@ -366,7 +366,9 @@ def send(line):
     sock.sendall(line.encode() + b'\n')
 
 pump(3)
-# wake the getty, then log in as root (no password set on this image)
+# wake the getty, log in as root with the dev-image password convention
+# (1234; root's password is set by the builder — the locked account asked
+# for a password and ate the whole diagnosis as attempts, nightly-20261114)
 send('')
 time.sleep(1)
 send('')
@@ -377,8 +379,9 @@ if not wait_for('login:', 30):
         print('::error::serial login prompt never appeared')
         sys.exit(0)
 send('root')
-time.sleep(2)
-send('')
+if not wait_for('密码', 30):
+    wait_for('Password', 15)
+send('1234')
 if not wait_for('#', 30):
     print('::warning::no root shell prompt detected — continuing blind')
 send('export PS1=SHELLREADY\\$\\ ; echo DIAG-START')

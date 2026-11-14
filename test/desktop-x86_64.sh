@@ -519,6 +519,11 @@ ENV
         echo "archmage:1234" | chpasswd
         printf "archmage ALL=(ALL:ALL) ALL\n" > /etc/sudoers.d/archmage
         chmod 440 /etc/sudoers.d/archmage
+        # root: same dev convention — the serial getty asks for a password
+        # even before showing a shell (observed: 'Password:' ate the whole
+        # serial diagnosis battery), and the boot-verify serial shell logs
+        # in as root for the definitive guest diagnosis
+        echo "root:1234" | chpasswd
         # services: NM + ufw + trim + SDDM (autologin via the conf.d below)
         systemctl enable NetworkManager.service
         systemctl enable ufw.service
